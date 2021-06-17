@@ -717,6 +717,14 @@ void Context::setupFromInput(const std::string &fileName) {
         setCoreElectrons(xx);
       }
 
+      if (parameterName == "coulombRepulsion") {
+        coulombRepulsion = parseDoubleWithUnits(val);
+      }
+
+      if (parameterName == "numEliashbergBins") {
+        numEliashbergBins = parseInt(val);
+      }
+
     } else { // it might be a block, or its content
 
       auto tup = parseBlockNameValue(lines, lineCounter);
@@ -1217,3 +1225,20 @@ bool Context::getDistributedElPhCoupling() {
 void Context::setDistributedElPhCoupling(const bool &x) {
   distributedElPhCoupling = x;
 }
+
+double Context::getCoulombRepulsion() const {
+  return coulombRepulsion;
+}
+
+void Context::setCoulombRepulsion(const double &x) {
+  coulombRepulsion = x;
+}
+
+int Context::getNumEliashbergBins() const {
+  return numEliashbergBins;
+}
+
+void Context::setNumEliashbergBins(const int &x) {
+  numEliashbergBins = x;
+}
+

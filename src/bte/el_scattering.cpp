@@ -46,6 +46,13 @@ ElScatteringMatrix::operator=(const ElScatteringMatrix &that) {
   return *this;
 }
 
+void ElScatteringMatrix::builder(VectorBTE *linewidth,
+                                 std::vector<VectorBTE> &inPopulations,
+                                 std::vector<VectorBTE> &outPopulations) {
+  builder(linewidth, inPopulations, outPopulations,
+          nullptr, nullptr, nullptr);
+}
+
 // 3 cases:
 // theMatrix and linewidth is passed: we compute and store in memory the scattering
 //       matrix and the diagonal
@@ -54,8 +61,10 @@ ElScatteringMatrix::operator=(const ElScatteringMatrix &that) {
 // only linewidth is passed: we compute only the linewidths
 void ElScatteringMatrix::builder(VectorBTE *linewidth,
                                  std::vector<VectorBTE> &inPopulations,
-                                 std::vector<VectorBTE> &outPopulations) {
-
+                                 std::vector<VectorBTE> &outPopulations,
+                                 BaseBandStructure *phBandStructure,
+                                 VectorBTE *phLinewidth,
+                                 EliashbergFunction *eliashbergFunction) {
   int switchCase = 0;
   if (theMatrix.rows() != 0 && linewidth != nullptr &&
       inPopulations.empty() && outPopulations.empty()) {
@@ -72,6 +81,11 @@ void ElScatteringMatrix::builder(VectorBTE *linewidth,
 
   if ((linewidth != nullptr) && (linewidth->dimensionality != 1)) {
     Error("The linewidths shouldn't have dimensionality");
+  }
+
+  bool buildPhProperties = false;
+  if ( phBandStructure != nullptr && phLinewidth != nullptr && eliashbergFunction != nullptr) {
+    buildPhProperties = true;
   }
 
   auto particle = outerBandStructure.getParticle();
@@ -212,6 +226,15 @@ void ElScatteringMatrix::builder(VectorBTE *linewidth,
       int nb2 = state2Energies.size();
       int nb3 = state3Energies.size();
 
+      WavevectorIndex ik3Idx(-1);
+      if ( buildPhProperties ) {
+        auto qPoints = phBandStructure->getPoints();
+        Eigen::Vector3d q3C = allQ3C[ik2Counter];
+        Eigen::Vector3d q3Crystal = qPoints.cartesianToCrystal(q3C);
+        int ik3 = qPoints.getIndex(q3Crystal);
+        ik3Idx = WavevectorIndex(ik3);
+      }
+
       for (int ib2 = 0; ib2 < nb2; ib2++) {
         double en2 = state2Energies(ib2);
         int is2 = innerBandStructure.getIndex(ik2Idx, BandIndex(ib2));
@@ -325,6 +348,35 @@ void ElScatteringMatrix::builder(VectorBTE *linewidth,
               } else {
                 // case of linewidth construction
                 linewidth->operator()(iCalc, 0, iBte1) += rate;
+
+                if (buildPhProperties) {
+                  double ratePh = 2. * coupling(ib1,ib2,ib3) / (2. * en3)
+                      * (fermi1 - fermi2) * delta1;
+                  int iPh = phBandStructure->getIndex(ik3Idx, BandIndex(ib3));
+                  phLinewidth->data(iCalc, iPh) += ratePh;
+
+                  StateIndex iPhIdx(iPh);
+
+                  double chemPot = statisticsSweep.getCalcStatistics(iCalc).chemicalPotential;
+                  double deltaE1, deltaE2;
+                  if (smearing->getType() == DeltaFunction::gaussian) {
+                    deltaE1 = smearing->getSmearing(en1 - chemPot);
+                    deltaE2 = smearing->getSmearing(en2 - chemPot);
+                  } else if (smearing->getType() == DeltaFunction::adaptiveGaussian) {
+                    // Eigen::Vector3d smear = v3s.row(ib3);
+                    Eigen::Vector3d smear1 = v1s.row(ib1);
+                    Eigen::Vector3d smear2 = v2s.row(ib2);
+                    deltaE1 = smearing->getSmearing(en1 - chemPot, smear1);
+                    deltaE2 = smearing->getSmearing(en2 - chemPot, smear2);
+                  } else {
+                    deltaE1 = smearing->getSmearing(chemPot, is1Idx);
+                    deltaE2 = smearing->getSmearing(chemPot, is2Idx);
+                  }
+                  double rateEF = coupling(ib1,ib2,ib3) * deltaE1 * deltaE2
+                                  / (2. * en3);
+                  eliashbergFunction->add(iCalc, rateEF, iPhIdx);
+                }
+
               }
             }
           }
@@ -338,6 +390,10 @@ void ElScatteringMatrix::builder(VectorBTE *linewidth,
     }
   } else {
     mpi->allReduceSum(&linewidth->data);
+  }
+  if ( buildPhProperties ) {
+    mpi->allReduceSum(&phLinewidth->data);
+    eliashbergFunction->allReduceSum();
   }
   // I prefer to close loopPrint after the MPI barrier: all MPI are synced here
   loopPrint.close();
@@ -409,4 +465,12 @@ void ElScatteringMatrix::builder(VectorBTE *linewidth,
       }
     }
   }
+}
+
+void ElScatteringMatrix::buildPhProperties(BaseBandStructure &phBandStructure,
+                                           VectorBTE &phLinewidths,
+                                           EliashbergFunction &eliashbergFunction) {
+  std::vector<VectorBTE> emptyVector;
+  builder(nullptr, emptyVector, emptyVector,
+          &phBandStructure, &phLinewidths, &eliashbergFunction);
 }

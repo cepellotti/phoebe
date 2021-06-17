@@ -110,7 +110,15 @@ class Context {
 
   bool distributedElPhCoupling = false; // MPI parallelize the el-ph coupling
   // currently only support parallelization of the qe2Phoebe app
+
+  double coulombRepulsion = std::numeric_limits<double>::quiet_NaN();
+  int numEliashbergBins = 0;
 public:
+  double getCoulombRepulsion() const;
+  void setCoulombRepulsion(const double &x);
+  int getNumEliashbergBins() const;
+  void setNumEliashbergBins(const int &x);
+
   // Methods for the apps of plotting the electron-phonon coupling
   std::string getG2PlotStyle();
   void setG2PlotStyle(const std::string &x);
