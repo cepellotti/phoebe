@@ -11,6 +11,7 @@
 #include "phonon_transport_app.h"
 #include "polarization_app.h"
 #include "transport_epa_app.h"
+#include "phonon_elph_properties.h"
 #include <cmath>
 #include <string>
 
@@ -29,7 +30,8 @@ std::unique_ptr<App> App::loadApp(const std::string &choice) {
                                             "elPhCouplingPlot",
                                             "electronLifetimes",
                                             "phononLifetimes",
-                                            "transportEpa"};
+                                            "transportEpa",
+                                            "phononElPhProperties"};
 
   // check if the app choice is valid, otherwise we stop.
   if (std::find(choices.begin(), choices.end(), choice) == choices.end()) {
@@ -64,6 +66,8 @@ std::unique_ptr<App> App::loadApp(const std::string &choice) {
     return std::unique_ptr<App>(new ElectronLifetimesApp);
   } else if (choice == "phononLifetimes") {
     return std::unique_ptr<App>(new PhononLifetimesApp);
+  } else if (choice == "phononElPhProperties") {
+    return std::unique_ptr<App>(new PhononElPhPropertiesApp);
   } else {
     return std::unique_ptr<App>(nullptr);
   }

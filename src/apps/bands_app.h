@@ -3,6 +3,7 @@
 
 #include "app.h"
 #include "points.h"
+#include "bandstructure.h"
 
 class PhononBandsApp : public App {
 public:

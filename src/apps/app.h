@@ -1,8 +1,6 @@
 #ifndef APP_H
 #define APP_H
 
-#include "active_bandstructure.h"
-#include "bandstructure.h"
 #include "context.h"
 
 /** Base class for launching apps.
