@@ -337,7 +337,7 @@ public:
   Eigen::VectorXi getCoreElectrons();
   void setCoreElectrons(const Eigen::VectorXi &x);
 
-  bool getDistributedElPhCoupling();
+  bool getDistributedElPhCoupling() const;
   void setDistributedElPhCoupling(const bool &x);
 };
 
