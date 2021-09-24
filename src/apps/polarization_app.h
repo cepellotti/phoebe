@@ -5,6 +5,7 @@
 
 class ElectronPolarizationApp : public App {
 public:
+  void checkRequirements(Context &context) override;
   void run(Context &context) override;
 };
 

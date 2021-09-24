@@ -688,6 +688,16 @@ void Context::setupFromInput(const std::string &fileName) {
         }
       }
 
+      if (parameterName == "valenceCharges") {
+        std::vector<double> x = parseDoubleList(val);
+        valenceCharges.resize(x.size());
+        int i = 0;
+        for (double val : x) {
+          valenceCharges(i) = val;
+          i++;
+        }
+      }
+
       if (parameterName == "g2PlotBandEl1") {
         std::vector<int> x = parseIntList(val);
         g2PlotEl1Bands.first = x[0];
@@ -1246,4 +1256,8 @@ bool Context::getDistributedElPhCoupling() const {
 
 void Context::setDistributedElPhCoupling(const bool &x) {
   distributedElPhCoupling = x;
+}
+
+Eigen::VectorXi Context::getValenceCharges() {
+  return valenceCharges;
 }
