@@ -318,3 +318,4 @@ ElectronH0Wannier::getBerryConnection(Point &point) {
   }
   return berryConnection;
 }
+

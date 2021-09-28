@@ -1,0 +1,16 @@
+appName = "electronPolarization"
+
+electronH0Name = "qe-elph/si_tb.dat",
+kMesh = [10,10,10]
+dopings = [1e20]
+
+temperatures = [300.]
+xmlPath = "./qe-elph/out/silicon.xml"
+projectionsFileName = "./qe-elph/projections.dat.projwfc_up"
+
+wannier90Prefix = "qe-elph/si"
+
+begin crystal
+Si 0.000000000   0.000000000   0.000000000
+Si 1.349401887   1.349401887   1.349401887
+end crystal

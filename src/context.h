@@ -99,19 +99,11 @@ class Context {
   std::pair<int,int> g2PlotEl2Bands;
   std::pair<int,int> g2PlotPhBands;
 
-  // utilities for parsing
-
-  static std::vector<std::string> &split(const std::string &s, char delimiter,
-                                  std::vector<std::string> &elements);
-  static std::vector<std::string> split(const std::string &s, char delimiter);
-
-  // variable used for the polarization
-  Eigen::VectorXi numCoreElectrons;
-
   bool distributedElPhCoupling = true; // MPI parallelize the el-ph coupling
   // currently only support parallelization of the qe2Phoebe app
 
-  Eigen::VectorXi valenceCharges;
+  std::string xmlPath, projectionsFileName;
+
 public:
   // Methods for the apps of plotting the electron-phonon coupling
   std::string getG2PlotStyle();
@@ -158,6 +150,9 @@ public:
   std::string getQuantumEspressoPrefix();
   void setQuantumEspressoPrefix(const std::string &x);
   std::string getElPhInterpolation();
+
+  std::string getXMLPath();
+  std::string getProjectionsFileName();
 
   double getEpaSmearingEnergy() const;
   double getEpaDeltaEnergy() const;
@@ -328,13 +323,19 @@ public:
    */
   void printInputSummary(const std::string &fileName);
 
-  Eigen::VectorXi getCoreElectrons();
-  void setCoreElectrons(const Eigen::VectorXi &x);
-
   bool getDistributedElPhCoupling() const;
   void setDistributedElPhCoupling(const bool &x);
 
-  Eigen::VectorXi getValenceCharges();
+  static std::tuple<std::string, std::string>
+  parseParameterNameValue(const std::string &line);
+  static std::vector<int> parseIntList(std::string &line);
+
+  // utilities for parsing
+
+  static std::vector<std::string> &split(const std::string &s, char delimiter,
+                                         std::vector<std::string> &elements);
+  static std::vector<std::string> split(const std::string &s, char delimiter);
+
 };
 
 #endif

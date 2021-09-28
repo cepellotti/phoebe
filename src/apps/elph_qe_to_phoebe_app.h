@@ -226,6 +226,7 @@ protected:
       const Eigen::MatrixXd &phBravaisVectors,
       const Eigen::MatrixXd &elBravaisVectors, const Eigen::Vector3i &qMesh,
       const Eigen::Vector3i &kMesh);
+  friend class ElectronPolarizationApp;
 };
 
 #endif

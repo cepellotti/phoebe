@@ -127,7 +127,7 @@ int parseInt(std::string &line) {
 
 /** Parse a string of format "key = [val1,val2]" to return a vector of ints.
  */
-std::vector<int> parseIntList(std::string &line) {
+std::vector<int> Context::parseIntList(std::string &line) {
   std::string delimiter = "[";
   size_t pos1 = line.find_first_of(delimiter);
   delimiter = "]";
@@ -375,7 +375,7 @@ bool lineHasParameter(const std::string &line) {
  * things to be further parsed.
  */
 std::tuple<std::string, std::string>
-parseParameterNameValue(const std::string &line) {
+Context::parseParameterNameValue(const std::string &line) {
   // we assume that there is "=" in the string
   std::string sep = "=";
   size_t position = line.find(sep); // unsigned integer
@@ -447,6 +447,13 @@ void Context::setupFromInput(const std::string &fileName) {
 
       if (parameterName == "quantumEspressoPrefix") {
         quantumEspressoPrefix = parseString(val);
+      }
+
+      if (parameterName == "xmlPath") {
+        xmlPath = parseString(val);
+      }
+      if (parameterName == "projectionsFileName") {
+        projectionsFileName = parseString(val);
       }
 
       if (parameterName == "elPhInterpolation") {
@@ -688,16 +695,6 @@ void Context::setupFromInput(const std::string &fileName) {
         }
       }
 
-      if (parameterName == "valenceCharges") {
-        std::vector<double> x = parseDoubleList(val);
-        valenceCharges.resize(x.size());
-        int i = 0;
-        for (double val : x) {
-          valenceCharges(i) = val;
-          i++;
-        }
-      }
-
       if (parameterName == "g2PlotBandEl1") {
         std::vector<int> x = parseIntList(val);
         g2PlotEl1Bands.first = x[0];
@@ -714,17 +711,6 @@ void Context::setupFromInput(const std::string &fileName) {
         std::vector<int> x = parseIntList(val);
         g2PlotPhBands.first = x[0];
         g2PlotPhBands.second = x[1];
-      }
-
-      // Polarization
-
-      if (parameterName == "numCoreElectrons") {
-        std::vector<int> x = parseIntList(val);
-        Eigen::VectorXi xx(x.size());
-        for (unsigned int i = 0; i < x.size(); i++) {
-          xx(i) = x[i];
-        }
-        setCoreElectrons(xx);
       }
 
     } else { // it might be a block, or its content
@@ -1066,22 +1052,35 @@ std::string Context::getElectronH0Name() { return electronH0Name; }
 void Context::setElectronH0Name(const std::string &x) { electronH0Name = x; }
 
 std::string Context::getWannier90Prefix() { return wannier90Prefix; }
+
 void Context::setWannier90Prefix(const std::string &x) { wannier90Prefix = x; }
+
 std::string Context::getQuantumEspressoPrefix() {
   return quantumEspressoPrefix;
 }
+
 void Context::setQuantumEspressoPrefix(const std::string &x) {
   quantumEspressoPrefix = x;
 }
 
+std::string Context::getXMLPath() { return xmlPath; }
+
+std::string Context::getProjectionsFileName() { return projectionsFileName; }
+
 std::string Context::getElPhInterpolation() { return elPhInterpolation; }
 
 double Context::getEpaSmearingEnergy() const { return epaSmearingEnergy; }
+
 double Context::getEpaDeltaEnergy() const { return epaDeltaEnergy; }
+
 double Context::getEpaMinEnergy() const { return epaMinEnergy; }
+
 double Context::getEpaMaxEnergy() const { return epaMaxEnergy; }
+
 int Context::getEpaNumBins() const { return epaNumBins; }
+
 double Context::getEpaEnergyRange() const { return epaEnergyRange; }
+
 double Context::getEpaEnergyStep() const { return epaEnergyStep; }
 
 double Context::getElectronFourierCutoff() const {
@@ -1239,25 +1238,10 @@ void Context::setG2PlotPhBands(const std::pair<int, int> &x) {
   g2PlotPhBands = x;
 }
 
-Eigen::VectorXi Context::getCoreElectrons() { return numCoreElectrons; }
-
-void Context::setCoreElectrons(const Eigen::VectorXi &x) {
-  for (unsigned int i = 0; i < x.size(); i++) {
-    if (x(i) < 0) {
-      Error("Found negative number of core electrons");
-    }
-  }
-  numCoreElectrons = x;
-}
-
 bool Context::getDistributedElPhCoupling() const {
   return distributedElPhCoupling;
 }
 
 void Context::setDistributedElPhCoupling(const bool &x) {
   distributedElPhCoupling = x;
-}
-
-Eigen::VectorXi Context::getValenceCharges() {
-  return valenceCharges;
 }

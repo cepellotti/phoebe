@@ -1,0 +1,9 @@
+ &projwfc
+    outdir = "./out"
+    prefix = "silicon"
+    DeltaE = 0.01
+    degauss = 0.005
+    ngauss = -1
+    lsym = .true.
+    filproj = 'projections.dat'
+ /

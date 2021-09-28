@@ -97,6 +97,8 @@ class ElectronH0Wannier : public HarmonicHamiltonian {
 
   int numBands;
   int numVectors;
+
+  friend class ElectronPolarizationApp;
 };
 
 #endif
