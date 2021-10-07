@@ -14,8 +14,6 @@
 
 // Compute the electronic polarization using the Berry connection
 void ElectronPolarizationApp::run(Context &context) {
-  std::cout << "Starting polarization calculation" << std::endl;
-
   double spinFactor = 2.;
   if (context.getHasSpinOrbit()) {
     spinFactor = 1.;
@@ -76,43 +74,87 @@ void ElectronPolarizationApp::run(Context &context) {
   auto ionicProjectedPolarization = std::get<1>(tI);
 
   auto polarization = electronicPolarization + ionicPolarization;
-  double volume = crystal.getVolumeUnitCell();
+
   double conversionPolarization = electronSi / pow(bohrRadiusSi, 2);
 
-  // Save results to file
-  std::ofstream outfile("./polarization.dat");
-  outfile << "# chemical potential (eV), doping (cm^-3), temperature (K), "
-             "polarization[x,y,z] (a.u.)\n";
-  outfile << "Polarization quantum e/V: "
-          << conversionPolarization/volume << "\n";
-  outfile << "Polarization conversion au to SI: "
-          << conversionPolarization << "\n";
-  outfile << "numCalc, numAtoms\n";
-  outfile << numCalculations << " " << numAtoms << "\n";
-  for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-    auto sc = statisticsSweep.getCalcStatistics(iCalc);
-    outfile << sc.chemicalPotential * energyRyToEv << "\t" << sc.doping
-            << "\t" << sc.temperature * temperatureAuToSi;
-    for (int i : {0, 1, 2}) {
-      outfile << "\t" << polarization(iCalc, i);
-    }
-    outfile << "\n";
-
-    for (int iAt=0; iAt<numAtoms; iAt++) {
-      outfile << iAt;
-      for (int i : {0, 1, 2}) {
-        outfile << "\t" << electronicProjectedPolarization(iAt, iCalc, i);
-      }
-      outfile << "\n";
-    }
-    for (int iAt=0; iAt<numAtoms; iAt++) {
-      outfile << iAt;
-      for (int i : {0, 1, 2}) {
-        outfile << "\t" << ionicProjectedPolarization(iAt, iCalc, i);
-      }
-      outfile << "\n";
+  // compute the polarization quantum eR/V
+  Eigen::Vector3d polarizationQuantum;
+  {
+    auto cell = crystal.getDirectUnitCell();
+    // cell.row(i) is the lattice vector i
+    double volume = crystal.getVolumeUnitCell();
+    for (int i : {0,1,2}) {
+      // this is the norm of R_i lattice vector
+      double normI = cell.row(i).norm();
+      // https://arxiv.org/pdf/1202.1831.pdf
+      // Note that in non-magnetic systems, the polarization quantum is usually
+      // multiplied by an additional factor of two because the up- and down-spin
+      // electrons are equivalent, and shifting an up-spin electron by a lattice
+      // vector also shifts the corresponding down-spin electron
+      polarizationQuantum(i) = normI * spinFactor / volume;
     }
   }
+
+  // print results to screen
+  if (mpi->mpiHead()) {
+    std::cout << "Polarization quantum eR/V: "
+            << conversionPolarization * polarizationQuantum.transpose() << " (C/m^2)\n";
+    std::cout << "# chemical potential (eV), doping (cm^-3), temperature (K), "
+                 "polarization[x,y,z] (C/m^2)\n";
+    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
+      auto sc = statisticsSweep.getCalcStatistics(iCalc);
+      std::cout << sc.chemicalPotential * energyRyToEv << "\t" << sc.doping
+                << "\t" << sc.temperature * temperatureAuToSi;
+      for (int i : {0, 1, 2}) {
+        std::cout << "\t" << polarization(iCalc, i)*conversionPolarization;
+      }
+      std::cout << "\n";
+      for (int i : {0, 1, 2}) {
+        std::cout << "\t" << electronicPolarization(iCalc, i)*conversionPolarization;
+      }
+      for (int i : {0, 1, 2}) {
+        std::cout << "\t" << ionicPolarization(iCalc, i)*conversionPolarization;
+      }
+      std::cout << "\n";
+    }
+  }
+
+//  // Save results to file
+//  if (mpi->mpiHead()) {
+//    std::ofstream outfile("./polarization.dat");
+//    outfile << "# chemical potential (eV), doping (cm^-3), temperature (K), "
+//               "polarization[x,y,z] (a.u.)\n";
+//    outfile << "Polarization quantum e/V: "
+//            << conversionPolarization / volume * spinFactor << "\n";
+//    outfile << "Polarization conversion au to SI: "
+//            << conversionPolarization << "\n";
+//    outfile << "numCalc, numAtoms\n";
+//    outfile << numCalculations << " " << numAtoms << "\n";
+//    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
+//      auto sc = statisticsSweep.getCalcStatistics(iCalc);
+//      outfile << sc.chemicalPotential * energyRyToEv << "\t" << sc.doping
+//              << "\t" << sc.temperature * temperatureAuToSi;
+//      for (int i : {0, 1, 2}) {
+//        outfile << "\t" << polarization(iCalc, i);
+//      }
+//      outfile << "\n";
+//
+//      for (int iAt = 0; iAt < numAtoms; iAt++) {
+//        outfile << iAt;
+//        for (int i : {0, 1, 2}) {
+//          outfile << "\t" << electronicProjectedPolarization(iAt, iCalc, i);
+//        }
+//        outfile << "\n";
+//      }
+//      for (int iAt = 0; iAt < numAtoms; iAt++) {
+//        outfile << iAt;
+//        for (int i : {0, 1, 2}) {
+//          outfile << "\t" << ionicProjectedPolarization(iAt, iCalc, i);
+//        }
+//        outfile << "\n";
+//      }
+//    }
+//  }
 
   std::cout << "Electron polarization computed" << std::endl;
 }
@@ -187,7 +229,7 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
   std::string wannierPrefix = context.getWannier90Prefix();
 
   // here we parse the k-mesh
-  Eigen::Vector3i kMesh;
+  Eigen::Vector3i kMesh = Eigen::Vector3i::Zero();
   {
     // open input file
     std::string fileName = wannierPrefix + ".win";
@@ -197,19 +239,18 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
     }
     std::string line;
     while (std::getline(infile, line)) {
-
-      if (!line.empty()) {// nothing to do
-        auto tup = Context::parseParameterNameValue(line);
-        auto parameterName = std::get<0>(tup);
-        auto val = std::get<1>(tup);
-        if (parameterName == "mp_grid") {
-          auto x = Context::split(val, ' ');
+      if (!line.empty()) {
+        auto x = Context::split(line, ' ');
+        if (x[0] == "mp_grid") {
           for (int i : {0, 1, 2}) {
-            kMesh(i) = std::stoi(x[i]);
+            kMesh(i) = std::stoi(x[i+2]);
           }
         }
       }
     }
+  }
+  if (kMesh(0)==0 || kMesh(1)==0 || kMesh(2)==0) {
+    Error("Failed to parse mp_grid from Wannier90");
   }
 
   // initialize points class, to represent the coarse grid used in Wannier90
@@ -473,7 +514,6 @@ ElectronPolarizationApp::getElectronicPolarization(
   double volume = crystal.getVolumeUnitCell();
   double norm = spinFactor / context.getKMesh().prod() / volume;
 
-#pragma omp parallel for default(none) shared(std::cout, bandStructure, statisticsSweep, numCalculations, particle, berryConnection, polarization, norm, numAtoms, projections, projectedPolarization)
   for (int is : bandStructure.parallelStateIterator()) {
     StateIndex isIdx(is);
     double energy = bandStructure.getEnergy(isIdx);
@@ -512,7 +552,6 @@ ElectronPolarizationApp::getIonicPolarization(
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::Tensor<double, 3> projectedPolarization(numAtoms, numCalculations, 3);
   projectedPolarization.setConstant(0.);
-
 
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
   std::vector<std::string> atomicNames = crystal.getAtomicNames();

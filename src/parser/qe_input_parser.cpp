@@ -889,8 +889,9 @@ QEParser::parseElHarmonicWannier(Context &context, Crystal *inCrystal) {
       for (int j = 0; j < numWannier; j++) {
         std::getline(infile, line);
         lineSplit = split(line, ' ');
-        double re = std::stod(lineSplit[2]) / distanceBohrToAng;
-        double im = std::stod(lineSplit[3]) / distanceBohrToAng;
+        double re,im;
+        re = std::stod(lineSplit[2]) / distanceBohrToAng;
+        im = std::stod(lineSplit[3]) / distanceBohrToAng;
         rMatrix(0, iR, i, j) = {re, im}; // the matrix was in eV
         re = std::stod(lineSplit[4]) / distanceBohrToAng;
         im = std::stod(lineSplit[5]) / distanceBohrToAng;
