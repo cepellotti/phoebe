@@ -71,7 +71,7 @@ Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
     Error("Error parsing XML file");
   }
   if(mpi->mpiHead()) {
-    std::cout << "Reading in " << xmlPath << "." << std::endl;
+    std::cout << "Reading crystal from " << xmlPath << "." << std::endl;
   }
 
   pugi::xml_node output = doc.child("qes:espresso").child("output");
@@ -152,6 +152,10 @@ Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
                   speciesNames, speciesMasses, dimensionality);
   crystal.print();
 
+  if(mpi->mpiHead()) {
+    std::cout << "Done reading crystal." << std::endl;
+  }
+
   return crystal;
 }
 
@@ -170,6 +174,9 @@ void ElectronPolarizationApp::run(Context &context) {
   // auto crystal = std::get<0>(tup);
   auto h0 = std::get<1>(tup);
 
+  // here we parse info on the coarse grid, and do Bloch to Wannier transform
+  setVariablesFromFiles(context, crystal);
+
   // first we make compute the band structure on the fine grid
   Points points(crystal, context.getKMesh());
   bool withVelocities = false;
@@ -177,19 +184,18 @@ void ElectronPolarizationApp::run(Context &context) {
   FullBandStructure bandStructure =
       h0.populate(points, withVelocities, withEigenvectors);
 
-  // here we parse info on the coarse grid, and do Bloch to Wannier transform
-  projectionBlochToWannier(context, crystal, h0);
-
-  // now we build the atomic orbital projection
-  int numAtoms = crystal.getNumAtoms();
-//  Eigen::Tensor<double, 3> projections(numAtoms, points.getNumPoints(), h0.getNumBands());
-//  projections = getProjectionsBlochOnAtoms(points, h0);
+  // let's fix the chemical potential now that we have the band structure
+  StatisticsSweep statisticsSweep(context, &bandStructure);
+  int numCalculations = statisticsSweep.getNumCalculations();
 
   // now we build the Berry connection
 
   Eigen::Tensor<double, 3> berryConnection(points.getNumPoints(),
                                            h0.getNumBands(), 3);
   {
+    if (mpi->mpiHead())
+      std::cout << "Start computing Berry connection." << std::endl;
+
     berryConnection.setZero();
 #pragma omp parallel for default(none) shared(h0, points, berryConnection)
     for (int ik = 0; ik < points.getNumPoints(); ik++) {
@@ -201,22 +207,14 @@ void ElectronPolarizationApp::run(Context &context) {
         }
       }
     }
+    if (mpi->mpiHead())
+      std::cout << "Done with Berry connection." << std::endl;
   }
 
-  // before moving on, we need to fix the chemical potential
-  StatisticsSweep statisticsSweep(context, &bandStructure);
-  int numCalculations = statisticsSweep.getNumCalculations();
-
-  // now we can compute the electronic polarization
-
+  // now compute the polarization
   auto electronicPolarization = getElectronicPolarization(crystal, statisticsSweep,
       context, bandStructure, spinFactor, berryConnection);
-//  electronicPolarization = testElectronicPolarization(h0, statisticsSweep, crystal);
-
-  auto tI = getIonicPolarization(crystal, statisticsSweep);
-  auto ionicPolarization = std::get<0>(tI);
-//  auto ionicProjectedPolarization = std::get<1>(tI);
-
+  auto ionicPolarization = getIonicPolarization(crystal, statisticsSweep);
   auto polarization = electronicPolarization + ionicPolarization;
 
   double conversionPolarization = electronSi / pow(bohrRadiusSi, 2);
@@ -261,43 +259,6 @@ void ElectronPolarizationApp::run(Context &context) {
     }
   }
 
-//  // Save results to file
-//  if (mpi->mpiHead()) {
-//    std::ofstream outfile("./polarization.dat");
-//    outfile << "# chemical potential (eV), doping (cm^-3), temperature (K), "
-//               "polarization[x,y,z] (a.u.)\n";
-//    outfile << "Polarization quantum e/V: "
-//            << conversionPolarization / volume * spinFactor << "\n";
-//    outfile << "Polarization conversion au to SI: "
-//            << conversionPolarization << "\n";
-//    outfile << "numCalc, numAtoms\n";
-//    outfile << numCalculations << " " << numAtoms << "\n";
-//    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-//      auto sc = statisticsSweep.getCalcStatistics(iCalc);
-//      outfile << sc.chemicalPotential * energyRyToEv << "\t" << sc.doping
-//              << "\t" << sc.temperature * temperatureAuToSi;
-//      for (int i : {0, 1, 2}) {
-//        outfile << "\t" << polarization(iCalc, i);
-//      }
-//      outfile << "\n";
-//
-//      for (int iAt = 0; iAt < numAtoms; iAt++) {
-//        outfile << iAt;
-//        for (int i : {0, 1, 2}) {
-//          outfile << "\t" << electronicProjectedPolarization(iAt, iCalc, i);
-//        }
-//        outfile << "\n";
-//      }
-//      for (int iAt = 0; iAt < numAtoms; iAt++) {
-//        outfile << iAt;
-//        for (int i : {0, 1, 2}) {
-//          outfile << "\t" << ionicProjectedPolarization(iAt, iCalc, i);
-//        }
-//        outfile << "\n";
-//      }
-//    }
-//  }
-
   std::cout << "Electron polarization computed" << std::endl;
 }
 
@@ -312,62 +273,8 @@ void ElectronPolarizationApp::checkRequirements(Context &context) {
   throwErrorIfUnset(context.getProjectionsFileName(), "projectionsFileName");
 }
 
-Eigen::Tensor<double, 3> ElectronPolarizationApp::getProjectionsBlochOnAtoms(Points &points,
-                                                                             ElectronH0Wannier &h0) {
-  auto crystal = points.getCrystal();
-  int numAtoms = crystal.getNumAtoms();
-  Eigen::Tensor<double, 3> projections(numAtoms, points.getNumPoints(), h0.getNumBands());
-  projections.setZero();
-
-  auto bVectors = h0.bravaisVectors;
-  auto bVectorsDeg = h0.vectorsDegeneracies;
-
-  int numBands = h0.getNumBands();
-
-#pragma omp parallel for default(none) shared(projections, points, h0, numAtoms, bVectors, bVectorsDeg, numBands)
-  for (int ik = 0; ik < points.getNumPoints(); ik++) {
-    Eigen::Vector3d k = points.getPointCoordinates(ik, Points::cartesianCoordinates);
-
-    std::vector<std::complex<double>> phases(bVectors.cols());
-    for (int iR = 0; iR < bVectors.cols(); iR++) {
-      Eigen::Vector3d R = bVectors.col(iR);
-      double phase = k.dot(R);
-      std::complex<double> phaseFactor = {cos(phase), sin(phase)};
-      phases[iR] = phaseFactor / bVectorsDeg(iR);
-    }
-
-    // first we diagonalize the hamiltonian
-    auto tup = h0.diagonalizeFromCoordinates(k);
-    // auto ens = std::get<0>(tup);
-    auto eigenvectors = std::get<1>(tup);
-
-    for (int iAt = 0; iAt < numAtoms; iAt++) {
-
-      // now we do the Fourier back-transform to reciprocal space
-      Eigen::MatrixXcd projectionW = Eigen::MatrixXcd::Zero(numBands, numBands);
-      for (int iR = 0; iR < bVectors.cols(); iR++) {
-        for (int m = 0; m < numBands; m++) {
-          for (int n = 0; n < numBands; n++) {
-            projectionW(m, n) += phases[iR] * projectionWannierSpace(iAt, iR, m, n);
-          }
-        }
-      }
-
-      // rotation into Bloch space
-      Eigen::MatrixXcd thisProjection(numBands, numBands);
-      thisProjection = eigenvectors.adjoint() * projectionW * eigenvectors;
-
-      for (int ib = 0; ib < numBands; ib++) {
-        projections(iAt, ik, ib) = thisProjection(ib, ib).real();
-      }
-    }
-  }
-  return projections;
-}
-
-void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
-                                                       Crystal &crystal,
-                                                       ElectronH0Wannier &h0) {
+void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
+                                                       Crystal &crystal) {
   std::string wannierPrefix = context.getWannier90Prefix();
 
   // here we parse the k-mesh
@@ -406,6 +313,8 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
     {
       // open input file
       std::string fileName = wannierPrefix + ".win";
+      if (mpi->mpiHead())
+        std::cout << "Reading in " << fileName << "." << std::endl;
       std::ifstream infile(fileName);
       if (not infile.is_open()) {
         Error("Wannier input file not found");
@@ -435,13 +344,6 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
       }
     }
   }
-
-  // set up the bravais lattice vectors
-  bVectors = h0.bravaisVectors;
-  bVectorsDeg = h0.vectorsDegeneracies;
-  int numBravaisVectors = h0.numVectors;
-  int numWannier = h0.numBands;
-  int numAtoms = crystal.getNumAtoms();
 
   //--------------------------------------------------------
 
@@ -495,7 +397,7 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
   std::string phoebePrefixQE = context.getQuantumEspressoPrefix();
 
   auto uMatrices = ElPhQeToPhoebeApp::setupRotationMatrices(wannierPrefix, kPoints);
-  auto numEntangledBands = int(uMatrices.dimension(0));// number of entangled bands
+//  auto numEntangledBands = int(uMatrices.dimension(0));// number of entangled bands
   int bandsOffset = ElPhQeToPhoebeApp::computeOffset(energies, wannierPrefix);
   int numFilledWannier = numElectrons - bandsOffset * 2;
   // this makes the calculation of fermi level work
@@ -535,15 +437,13 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
         auto xx = Context::split(lines[counter + 3], ' ');
         double charge = std::stod(xx[5]);
 
-        //        std::cout << species << " " << charge << "\n";
-
         int iSpecies = -1;
-        int counter = 0;
+        int ctr = 0;
         for (std::string y : crystal.getSpeciesNames()) {
           if (y.find(species) != std::string::npos) {
-            iSpecies = counter;
+            iSpecies = ctr;
           }
-          counter++;
+          ctr++;
         }
         if (iSpecies == -1) {
           Error("Species not found");
@@ -552,6 +452,10 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
       }
     }
   }
+
+  if (mpi->mpiHead())
+    std::cout << "Done reading files." << std::endl;
+
 }
 
 Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
@@ -562,7 +466,6 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
     const Eigen::Tensor<double, 3> &berryConnection) {
 
   int numCalculations = statisticsSweep.getNumCalculations();
-  int numAtoms = crystal.getNumAtoms();
   auto particle = bandStructure.getParticle();
 
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
@@ -592,8 +495,7 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
 }
 
 // now we add the ionic polarization
-std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
-ElectronPolarizationApp::getIonicPolarization(
+Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
   std::cout << valenceCharges.transpose() << "\n";
@@ -605,25 +507,20 @@ ElectronPolarizationApp::getIonicPolarization(
   double volume = crystal.getVolumeUnitCell();
   int numAtoms = crystal.getNumAtoms();
 
-  Eigen::Tensor<double, 3> projectedPolarization(numAtoms, numCalculations, 3);
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
-  int ionicValenceCharge = 0;
   for (int iAt = 0; iAt < numAtoms; iAt++) {
     Eigen::Vector3d position = atomicPositions.row(iAt);
     int iType = crystal.getAtomicSpecies()(iAt);
     int valenceCharge = valenceCharges(iType);
-    ionicValenceCharge += valenceCharge;
-
 
     for (int i : {0, 1, 2}) {
       double x = valenceCharge * position(i) / volume;
       for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-        projectedPolarization(iAt, iCalc, i) = x;
         polarization(iCalc, i) += x;
       }
     }
   }
 
-  return {polarization, projectedPolarization};
+  return polarization;
 }
