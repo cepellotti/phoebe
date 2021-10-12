@@ -32,6 +32,10 @@ class ElectronPolarizationApp : public App {
 
   std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
     getIonicPolarization(Crystal &crystal, StatisticsSweep &statisticsSweep);
+
+  Eigen::MatrixXd testElectronicPolarization(ElectronH0Wannier &h0,
+                                             StatisticsSweep &statisticsSweep,
+                                             Crystal &crystal);
 };
 
 #endif

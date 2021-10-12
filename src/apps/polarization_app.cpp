@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <fstream>
 #include <string>
+#include <iomanip>
 
 #include "constants.h"
 #include "elph_qe_to_phoebe_app.h"
@@ -12,6 +13,148 @@
 #include "qe_input_parser.h"
 #include "statistics_sweep.h"
 
+Eigen::MatrixXd ElectronPolarizationApp::testElectronicPolarization(
+    ElectronH0Wannier &h0, StatisticsSweep &statisticsSweep, Crystal &crystal) {
+  // here I compute the polarization as the sum of the Wannier function centers
+  // i.e. summing <0n|r|0n>
+  int numCalculations = statisticsSweep.getNumCalculations();
+  Eigen::MatrixXd electronicPolarization = Eigen::MatrixXd::Zero(numCalculations,3);
+  double volume = crystal.getVolumeUnitCell();
+
+  // #NOTE::: this index is hard-coded for the test example!
+  int iR0 = 364;
+  for (int iw=0; iw<h0.getNumBands(); iw++) {
+    for (int iCalc=0; iCalc<numCalculations; iCalc++) {
+      for (int i : {0, 1, 2}) {
+        // the 2 is the spin degeneracy
+        electronicPolarization(iCalc, i) -= 2. * h0.rMatrix(i, iR0, iw, iw).real() / volume;
+      }
+    }
+  }
+  for (int iCalc=0; iCalc<numCalculations; iCalc++) {
+    for (int i : {0, 1, 2}) {
+      std::cout << i << " " << electronicPolarization(iCalc,i) << "\n";
+    }
+  }
+  return electronicPolarization;
+}
+
+std::vector<std::string> splitt(const std::string &s, char delimiter) {
+  std::vector<std::string> tokens;
+  std::string token;
+  std::istringstream tokenStream(s);
+
+  if (delimiter == ' ') {
+    for (std::string s2; tokenStream >> s2;) {
+      tokens.push_back(s2);
+    }
+  } else {
+    while (std::getline(tokenStream, token, delimiter)) {
+      token.erase(std::remove_if(token.begin(), token.end(), ::isspace),
+                  token.end());
+      tokens.push_back(token);
+    }
+  }
+
+  return tokens;
+}
+
+Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
+  //  Here we read the XML file of quantum espresso to get the crystal info.
+  if (xmlPath.empty()) {
+    Error("Must provide an XML file name");
+  }
+  // load and parse XML file using a library
+  pugi::xml_document doc;
+  pugi::xml_parse_result result = doc.load_file(xmlPath.c_str());
+  if (not result) {
+    Error("Error parsing XML file");
+  }
+  if(mpi->mpiHead()) {
+    std::cout << "Reading in " << xmlPath << "." << std::endl;
+  }
+
+  pugi::xml_node output = doc.child("qes:espresso").child("output");
+
+  // atomic species
+
+  pugi::xml_node atomicSpeciesXML = output.child("atomic_species");
+  int numElements = atomicSpeciesXML.attribute("ntyp").as_int();
+  std::vector<std::string> speciesNames;
+  Eigen::VectorXd speciesMasses(numElements);
+  int i = 0;
+  for (pugi::xml_node species : atomicSpeciesXML.children("species")) {
+    speciesNames.emplace_back(species.attribute("name").value());
+    speciesMasses(i) = species.child("mass").text().as_double(); // in amu
+    i += 1;
+  }
+
+  // atomic structure
+
+  pugi::xml_node atomicStructure = output.child("atomic_structure");
+  int numAtoms = atomicStructure.attribute("nat").as_int();
+
+  //  we read the atomic positions
+
+  pugi::xml_node atomicPositionsXML = atomicStructure.child("atomic_positions");
+  Eigen::MatrixXd atomicPositions(numAtoms, 3);
+  Eigen::VectorXi atomicSpecies(numAtoms);
+  i = 0;
+  int atomId = 0;
+  std::string thisAtomName;
+  for (pugi::xml_node atom : atomicPositionsXML.children("atom")) {
+    thisAtomName = atom.attribute("name").value();
+    // the XML doesn't describe atoms with a tag ID, but using names
+    // here I find the index of the species in speciesNames, given the name
+    auto itr =
+        std::find(speciesNames.begin(), speciesNames.end(), thisAtomName);
+    if (itr != speciesNames.cend()) {
+      atomId = std::distance(speciesNames.begin(), itr);
+    } else {
+      Error("Element not found in XML");
+    }
+    atomicSpecies(i) = atomId;
+
+    // note: atomic positions are in Cartesian coordinates in units of angstroms
+    std::vector<std::string> lineSplit = splitt(atom.child_value(), ' ');
+    atomicPositions(i, 0) = std::stod(lineSplit[0]);
+    atomicPositions(i, 1) = std::stod(lineSplit[1]);
+    atomicPositions(i, 2) = std::stod(lineSplit[2]);
+    i++;
+  }
+
+  // we read the unit cell
+
+  Eigen::Matrix3d directUnitCell;
+  Eigen::Vector3d thisValues;
+  pugi::xml_node cell = atomicStructure.child("cell");
+  {
+    std::vector<std::string> lineSplit = splitt(cell.child_value("a1"), ' ');
+    directUnitCell(0, 0) = std::stod(lineSplit[0]);
+    directUnitCell(1, 0) = std::stod(lineSplit[1]);
+    directUnitCell(2, 0) = std::stod(lineSplit[2]);
+    lineSplit = splitt(cell.child_value("a2"), ' ');
+    directUnitCell(0, 1) = std::stod(lineSplit[0]);
+    directUnitCell(1, 1) = std::stod(lineSplit[1]);
+    directUnitCell(2, 1) = std::stod(lineSplit[2]);
+    lineSplit = splitt(cell.child_value("a3"), ' ');
+    directUnitCell(0, 2) = std::stod(lineSplit[0]);
+    directUnitCell(1, 2) = std::stod(lineSplit[1]);
+    directUnitCell(2, 2) = std::stod(lineSplit[2]);
+  }
+
+  // Now we parse the electronic structure
+
+  // Initialize the crystal class
+
+  int dimensionality = context.getDimensionality();
+  Crystal crystal(context, directUnitCell, atomicPositions, atomicSpecies,
+                  speciesNames, speciesMasses, dimensionality);
+  crystal.print();
+
+  return crystal;
+}
+
 // Compute the electronic polarization using the Berry connection
 void ElectronPolarizationApp::run(Context &context) {
   double spinFactor = 2.;
@@ -20,9 +163,11 @@ void ElectronPolarizationApp::run(Context &context) {
   }
   Warning("Make sure to set hasSpinOrbit=true if used in a DFT code");
 
+  Crystal crystal = parseCrystalFromXml(context, context.getXMLPath());
+
   // Read the necessary input files
-  auto tup = QEParser::parseElHarmonicWannier(context);
-  auto crystal = std::get<0>(tup);
+  auto tup = QEParser::parseElHarmonicWannier(context, &crystal);
+  // auto crystal = std::get<0>(tup);
   auto h0 = std::get<1>(tup);
 
   // first we make compute the band structure on the fine grid
@@ -69,6 +214,8 @@ void ElectronPolarizationApp::run(Context &context) {
   auto electronicPolarization = std::get<0>(tE);
   auto electronicProjectedPolarization = std::get<1>(tE);
 
+  electronicPolarization = testElectronicPolarization(h0, statisticsSweep, crystal);
+
   auto tI = getIonicPolarization(crystal, statisticsSweep);
   auto ionicPolarization = std::get<0>(tI);
   auto ionicProjectedPolarization = std::get<1>(tI);
@@ -94,26 +241,24 @@ void ElectronPolarizationApp::run(Context &context) {
       polarizationQuantum(i) = normI * spinFactor / volume;
     }
   }
+  // normI should be updated most likely
+  Warning("Some checks to do on P quantum for non cubic crystals");
 
   // print results to screen
   if (mpi->mpiHead()) {
     std::cout << "Polarization quantum eR/V: "
             << conversionPolarization * polarizationQuantum.transpose() << " (C/m^2)\n";
-    std::cout << "# chemical potential (eV), doping (cm^-3), temperature (K), "
-                 "polarization[x,y,z] (C/m^2)\n";
+    std::cout << "\n";
+    std::cout << "Temperature (K), doping (cm^-3), chemical potential (eV)\n";
     for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
       auto sc = statisticsSweep.getCalcStatistics(iCalc);
-      std::cout << sc.chemicalPotential * energyRyToEv << "\t" << sc.doping
-                << "\t" << sc.temperature * temperatureAuToSi;
+      std::cout << std::fixed << std::setprecision(6);
+      std::cout << sc.temperature * temperatureAuToSi << "\t" << sc.doping
+                << "\t" << sc.chemicalPotential * energyRyToEv << "\n";
+      std::cout << "Polarization (C/m^2):";
+      std::cout << std::scientific;
       for (int i : {0, 1, 2}) {
-        std::cout << "\t" << polarization(iCalc, i)*conversionPolarization;
-      }
-      std::cout << "\n";
-      for (int i : {0, 1, 2}) {
-        std::cout << "\t" << electronicPolarization(iCalc, i)*conversionPolarization;
-      }
-      for (int i : {0, 1, 2}) {
-        std::cout << "\t" << ionicPolarization(iCalc, i)*conversionPolarization;
+        std::cout << "\t" << polarization(iCalc, i) * conversionPolarization;
       }
       std::cout << "\n";
     }
@@ -545,26 +690,36 @@ std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
 ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
+  std::cout << valenceCharges << "\n";
+  std::cout << crystal.getAtomicNames()[0] << "\n";
+  std::cout << crystal.getAtomicNames()[1] << "\n";
+  std::cout << crystal.getAtomicNames()[2] << "\n";
+
+  valenceCharges[0] = 0.;
+  valenceCharges[1] = 0.;
+  valenceCharges[2] = 6.;
+
   int numCalculations = statisticsSweep.getNumCalculations();
   double volume = crystal.getVolumeUnitCell();
   int numAtoms = crystal.getNumAtoms();
 
-  Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::Tensor<double, 3> projectedPolarization(numAtoms, numCalculations, 3);
-  projectedPolarization.setConstant(0.);
-
+  Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
-  std::vector<std::string> atomicNames = crystal.getAtomicNames();
+  int ionicValenceCharge = 0;
   for (int iAt = 0; iAt < numAtoms; iAt++) {
     Eigen::Vector3d position = atomicPositions.row(iAt);
     int iType = crystal.getAtomicSpecies()(iAt);
     int valenceCharge = valenceCharges(iType);
+    ionicValenceCharge += valenceCharge;
     for (int i : {0, 1, 2}) {
+      double x = valenceCharge * position(i) / volume;
       for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-        polarization(iCalc, i) += valenceCharge * position(i) / volume;
-        projectedPolarization(iAt, iCalc, i) += valenceCharge * position(i) / volume;
+        projectedPolarization(iAt, iCalc, i) = x;
+        polarization(iCalc, i) += x;
       }
     }
   }
+
   return {polarization, projectedPolarization};
 }
