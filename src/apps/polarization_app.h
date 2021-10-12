@@ -21,14 +21,12 @@ class ElectronPolarizationApp : public App {
   void projectionBlochToWannier(Context &context, Crystal &crystal,
                                 ElectronH0Wannier &h0);
 
-  std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
-  getElectronicPolarization(
+  Eigen::MatrixXd getElectronicPolarization(
       Crystal &crystal,
       StatisticsSweep &statisticsSweep,
       Context &context,
       BaseBandStructure &bandStructure, const double &spinFactor,
-      const Eigen::Tensor<double, 3> &berryConnection,
-      const Eigen::Tensor<double, 3> &projections);
+      const Eigen::Tensor<double, 3> &berryConnection);
 
   std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
     getIonicPolarization(Crystal &crystal, StatisticsSweep &statisticsSweep);

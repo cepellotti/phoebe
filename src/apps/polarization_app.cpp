@@ -182,8 +182,8 @@ void ElectronPolarizationApp::run(Context &context) {
 
   // now we build the atomic orbital projection
   int numAtoms = crystal.getNumAtoms();
-  Eigen::Tensor<double, 3> projections(numAtoms, points.getNumPoints(), h0.getNumBands());
-  projections = getProjectionsBlochOnAtoms(points, h0);
+//  Eigen::Tensor<double, 3> projections(numAtoms, points.getNumPoints(), h0.getNumBands());
+//  projections = getProjectionsBlochOnAtoms(points, h0);
 
   // now we build the Berry connection
 
@@ -209,16 +209,13 @@ void ElectronPolarizationApp::run(Context &context) {
 
   // now we can compute the electronic polarization
 
-  auto tE = getElectronicPolarization(crystal, statisticsSweep,
-      context, bandStructure, spinFactor, berryConnection, projections);
-  auto electronicPolarization = std::get<0>(tE);
-  auto electronicProjectedPolarization = std::get<1>(tE);
-
-  electronicPolarization = testElectronicPolarization(h0, statisticsSweep, crystal);
+  auto electronicPolarization = getElectronicPolarization(crystal, statisticsSweep,
+      context, bandStructure, spinFactor, berryConnection);
+//  electronicPolarization = testElectronicPolarization(h0, statisticsSweep, crystal);
 
   auto tI = getIonicPolarization(crystal, statisticsSweep);
   auto ionicPolarization = std::get<0>(tI);
-  auto ionicProjectedPolarization = std::get<1>(tI);
+//  auto ionicProjectedPolarization = std::get<1>(tI);
 
   auto polarization = electronicPolarization + ionicPolarization;
 
@@ -555,163 +552,20 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
       }
     }
   }
-
-
-
-
-
-  // build the map from coarse QE grid to our internal one
-  Eigen::VectorXi ikMap(numPoints);
-  {
-#pragma omp parallel for default(none) shared(numPoints, kGridFull, kPoints, ikMap)
-    for (int ikOld = 0; ikOld < numPoints; ikOld++) {
-      Eigen::Vector3d kOld = kGridFull.col(ikOld);
-      int ikNew = kPoints.getIndex(kOld);
-      ikMap(ikOld) = ikNew;
-    }
-  }
-
-  Eigen::Tensor<double, 3> projectionsQE;
-  {// read the projections from QE
-
-    // first, parse all the projections file
-    std::vector<std::string> lines;
-    {
-      // open input file
-      std::string fileName = context.getProjectionsFileName();
-      std::ifstream infile(fileName);
-      if (not infile.is_open()) {
-        Error("Projection file not found");
-      }
-      std::string line;
-      while (std::getline(infile, line)) {
-        lines.push_back(line);
-      }
-    }
-
-    // read the number of projections
-    int numProjections;
-    {
-      std::string line;
-      line = lines[4 + numAtoms + crystal.getNumSpecies()];
-      auto x = Context::split(line, ' ');
-      numProjections = std::stoi(x[0]);
-    }
-
-//    valenceCharges.resize(crystal.getNumSpecies());
-//    {
-//      int offset = 4;
-//      for (int iType = 0; iType < crystal.getNumSpecies(); iType++) {
-//        std::string line = lines[offset + iType];
-//        auto x = Context::split(line, ' ');
-//        std::string speciesName = x[1];
-//        auto listOfSpecies = crystal.getSpeciesNames();
-//
-//        int iSpecies = -1;
-//        int counter = 0;
-//        for (std::string y : listOfSpecies) {
-//          if (y.find(speciesName) != std::string::npos) {
-//            iSpecies = counter;
-//          }
-//          counter++;
-//        }
-//        if (iSpecies == -1) {
-//          Error("Species not found");
-//        }
-//        valenceCharges[iSpecies] = std::stod(x[2]);
-//      }
-//    }
-
-    // read all projections, and integrate over the atom index
-    Eigen::Tensor<double, 3> tmpProj(numAtoms, numPoints, numQEBands);
-    tmpProj.setZero();
-    int offset = 6 + numAtoms + crystal.getNumSpecies();
-    int counter = offset;
-    for (int iProj = 0; iProj < numProjections; iProj++) {
-      auto x = Context::split(lines[counter], ' ');
-      int iAt = std::stoi(x[1]);
-      counter++;
-      for (int ik = 0; ik < numPoints; ik++) {
-        for (int ib = 0; ib < numQEBands; ib++) {
-          auto xx = Context::split(lines[counter], ' ');
-          double thisProj = std::stod(xx[2]);
-          tmpProj(iAt, ik, ib) += thisProj;
-          counter++;
-        }
-      }
-    }
-    projectionsQE.resize(numAtoms, numPoints, numEntangledBands);
-    projectionsQE.setZero();
-    for (int iAt = 0; iAt < numAtoms; iAt++) {
-      for (int ik = 0; ik < numPoints; ik++) {
-        for (int ib = 0; ib < numEntangledBands; ib++) {
-          projectionsQE(iAt, ikMap(ik), ib) = tmpProj(iAt, ik, bandsOffset + ib);
-        }
-      }
-    }
-  }
-
-  // now do transformation
-  projectionWannierSpace.resize(numAtoms, numBravaisVectors, numWannier, numWannier);
-  projectionWannierSpace.setZero();
-  for (int ik = 0; ik < numPoints; ik++) {
-    Eigen::Vector3d k1C = kPoints.getPointCoordinates(ik, Points::cartesianCoordinates);
-
-    // u has size (numBands, numWannier, numKPoints)
-    Eigen::MatrixXcd uK(numEntangledBands, numWannier);
-    for (int i = 0; i < numEntangledBands; i++) {
-      for (int j = 0; j < numWannier; j++) {
-        uK(i, j) = uMatrices(i, j, ik);
-      }
-    }
-
-    // Eq. 26 of Giustino PRB 2007. Note that the U are inverted
-    Eigen::Tensor<std::complex<double>, 3> h0K1(numAtoms, numEntangledBands, numEntangledBands);
-    for (int iAt = 0; iAt < numAtoms; iAt++) {
-      Eigen::MatrixXcd tmp(numEntangledBands, numEntangledBands);
-      for (int ib = 0; ib < numEntangledBands; ib++) {
-        tmp(ib, ib) = {projectionsQE(iAt, ik, ib), 0};
-      }
-      Eigen::MatrixXcd tmp2(numWannier, numWannier);
-      tmp2 = uK * tmp * uK.adjoint();
-      for (int iw1 = 0; iw1 < numWannier; iw1++) {
-        for (int iw2 = 0; iw2 < numWannier; iw2++) {
-          h0K1(iAt, iw1, iw2) = tmp2(iw1, iw2);
-        }
-      }
-    }
-
-    for (int iR = 0; iR < numBravaisVectors; iR++) {
-      Eigen::Vector3d R = bVectors.col(iR);
-      double arg = k1C.dot(R);
-      std::complex<double> phase = exp(-complexI * arg) / double(numPoints);
-      for (int m = 0; m < numWannier; m++) {
-        for (int n = 0; n < numWannier; n++) {
-          for (int iAt = 0; iAt < numAtoms; iAt++) {
-            projectionWannierSpace(iAt, iR, m, n) += phase * h0K1(iAt, m, n);
-          }
-        }
-      }
-    }
-  }
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
-ElectronPolarizationApp::getElectronicPolarization(
+Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
     Crystal &crystal,
     StatisticsSweep &statisticsSweep,
     Context &context,
     BaseBandStructure &bandStructure, const double &spinFactor,
-    const Eigen::Tensor<double, 3> &berryConnection,
-    const Eigen::Tensor<double, 3> &projections) {
+    const Eigen::Tensor<double, 3> &berryConnection) {
 
   int numCalculations = statisticsSweep.getNumCalculations();
   int numAtoms = crystal.getNumAtoms();
   auto particle = bandStructure.getParticle();
 
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
-  Eigen::Tensor<double, 3> projectedPolarization(numAtoms, numCalculations, 3);
-  projectedPolarization.setConstant(0.);
   double volume = crystal.getVolumeUnitCell();
   double norm = spinFactor / context.getKMesh().prod() / volume;
 
@@ -729,16 +583,12 @@ ElectronPolarizationApp::getElectronicPolarization(
       double population = particle.getPopulation(energy, temp, chemPot);
       for (int i : {0, 1, 2}) {
         polarization(iCalc, i) -= population * berryConnection(ik, ib, i) * norm;
-        for (int iAt = 0; iAt < numAtoms; iAt++) {
-          projectedPolarization(iAt, iCalc, i) -= projections(iAt, ik, ib) * population * berryConnection(ik, ib, i) * norm;
-        }
       }
     }
   }
   mpi->allReduceSum(&polarization);
-  mpi->allReduceSum(&projectedPolarization);
 
-  return {polarization, projectedPolarization};
+  return polarization;
 }
 
 // now we add the ionic polarization
