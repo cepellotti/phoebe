@@ -690,14 +690,14 @@ std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
 ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
-  std::cout << valenceCharges << "\n";
-  std::cout << crystal.getAtomicNames()[0] << "\n";
-  std::cout << crystal.getAtomicNames()[1] << "\n";
-  std::cout << crystal.getAtomicNames()[2] << "\n";
-
-  valenceCharges[0] = 0.;
-  valenceCharges[1] = 0.;
-  valenceCharges[2] = 6.;
+//  std::cout << valenceCharges << "\n";
+//  std::cout << crystal.getAtomicNames()[0] << "\n";
+//  std::cout << crystal.getAtomicNames()[1] << "\n";
+//  std::cout << crystal.getAtomicNames()[2] << "\n";
+//
+//  valenceCharges[0] = 0.;
+//  valenceCharges[1] = 0.;
+//  valenceCharges[2] = 6.;
 
   int numCalculations = statisticsSweep.getNumCalculations();
   double volume = crystal.getVolumeUnitCell();
