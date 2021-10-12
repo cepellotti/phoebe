@@ -504,6 +504,62 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
   // this makes the calculation of fermi level work
   context.setNumOccupiedStates(numFilledWannier);
 
+
+
+  // parse valence charges
+  // read the projections from QE scf.out file
+
+  valenceCharges.resize(crystal.getNumSpecies());
+  valenceCharges.setZero();
+  {
+    // first, parse all the scf output file
+    std::vector<std::string> lines;
+    {
+      // open input file
+      std::string fileName = "./scf.out";// context.getProjectionsFileName();
+      std::ifstream infile(fileName);
+      if (not infile.is_open()) {
+        Error("Scf output file not found");
+      }
+      std::string line;
+      while (std::getline(infile, line)) {
+        lines.push_back(line);
+      }
+    }
+
+    int counter = -1;
+    for (auto line : lines) {
+      counter++;
+      if (line.empty()) continue;
+      auto x = Context::split(line, ' ');
+      if (x[0] == "PseudoPot.") {
+        std::string species = x[4];
+        species[0] = std::toupper(species[0]);
+        auto xx = Context::split(lines[counter + 3], ' ');
+        double charge = std::stod(xx[5]);
+
+        //        std::cout << species << " " << charge << "\n";
+
+        int iSpecies = -1;
+        int counter = 0;
+        for (std::string y : crystal.getSpeciesNames()) {
+          if (y.find(species) != std::string::npos) {
+            iSpecies = counter;
+          }
+          counter++;
+        }
+        if (iSpecies == -1) {
+          Error("Species not found");
+        }
+        valenceCharges(iSpecies) = charge;
+      }
+    }
+  }
+
+
+
+
+
   // build the map from coarse QE grid to our internal one
   Eigen::VectorXi ikMap(numPoints);
   {
@@ -542,29 +598,29 @@ void ElectronPolarizationApp::projectionBlochToWannier(Context &context,
       numProjections = std::stoi(x[0]);
     }
 
-    valenceCharges.resize(crystal.getNumSpecies());
-    {
-      int offset = 4;
-      for (int iType = 0; iType < crystal.getNumSpecies(); iType++) {
-        std::string line = lines[offset + iType];
-        auto x = Context::split(line, ' ');
-        std::string speciesName = x[1];
-        auto listOfSpecies = crystal.getSpeciesNames();
-
-        int iSpecies = -1;
-        int counter = 0;
-        for (std::string y : listOfSpecies) {
-          if (y.find(speciesName) != std::string::npos) {
-            iSpecies = counter;
-          }
-          counter++;
-        }
-        if (iSpecies == -1) {
-          Error("Species not found");
-        }
-        valenceCharges[iSpecies] = std::stod(x[2]);
-      }
-    }
+//    valenceCharges.resize(crystal.getNumSpecies());
+//    {
+//      int offset = 4;
+//      for (int iType = 0; iType < crystal.getNumSpecies(); iType++) {
+//        std::string line = lines[offset + iType];
+//        auto x = Context::split(line, ' ');
+//        std::string speciesName = x[1];
+//        auto listOfSpecies = crystal.getSpeciesNames();
+//
+//        int iSpecies = -1;
+//        int counter = 0;
+//        for (std::string y : listOfSpecies) {
+//          if (y.find(speciesName) != std::string::npos) {
+//            iSpecies = counter;
+//          }
+//          counter++;
+//        }
+//        if (iSpecies == -1) {
+//          Error("Species not found");
+//        }
+//        valenceCharges[iSpecies] = std::stod(x[2]);
+//      }
+//    }
 
     // read all projections, and integrate over the atom index
     Eigen::Tensor<double, 3> tmpProj(numAtoms, numPoints, numQEBands);
@@ -690,14 +746,10 @@ std::tuple<Eigen::MatrixXd, Eigen::Tensor<double, 3>>
 ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
-//  std::cout << valenceCharges << "\n";
-//  std::cout << crystal.getAtomicNames()[0] << "\n";
-//  std::cout << crystal.getAtomicNames()[1] << "\n";
-//  std::cout << crystal.getAtomicNames()[2] << "\n";
-//
-//  valenceCharges[0] = 0.;
-//  valenceCharges[1] = 0.;
-//  valenceCharges[2] = 6.;
+  std::cout << valenceCharges.transpose() << "\n";
+  std::cout << crystal.getAtomicNames()[0] << " "
+            << crystal.getAtomicNames()[1] << " "
+            << crystal.getAtomicNames()[2] << "\n";
 
   int numCalculations = statisticsSweep.getNumCalculations();
   double volume = crystal.getVolumeUnitCell();
@@ -712,6 +764,8 @@ ElectronPolarizationApp::getIonicPolarization(
     int iType = crystal.getAtomicSpecies()(iAt);
     int valenceCharge = valenceCharges(iType);
     ionicValenceCharge += valenceCharge;
+
+
     for (int i : {0, 1, 2}) {
       double x = valenceCharge * position(i) / volume;
       for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
