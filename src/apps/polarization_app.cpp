@@ -180,7 +180,7 @@ void ElectronPolarizationApp::run(Context &context) {
   // first we make compute the band structure on the fine grid
   Points points(crystal, context.getKMesh());
   bool withVelocities = false;
-  bool withEigenvectors = false;
+  bool withEigenvectors = true;
   FullBandStructure bandStructure =
       h0.populate(points, withVelocities, withEigenvectors);
 
@@ -190,26 +190,27 @@ void ElectronPolarizationApp::run(Context &context) {
 
   // now we build the Berry connection
 
-  Eigen::Tensor<double, 3> berryConnection(points.getNumPoints(),
-                                           h0.getNumBands(), 3);
-  {
-    if (mpi->mpiHead())
-      std::cout << "Start computing Berry connection." << std::endl;
-
-    berryConnection.setZero();
-#pragma omp parallel for default(none) shared(h0, points, berryConnection)
-    for (int ik = 0; ik < points.getNumPoints(); ik++) {
-      auto point = points.getPoint(ik);
-      auto thisBerryConnection = h0.getBerryConnection(point);
-      for (int ib = 0; ib < h0.getNumBands(); ib++) {
-        for (int i : {0, 1, 2}) {
-          berryConnection(ik, ib, i) = thisBerryConnection[i](ib, ib).real();
-        }
-      }
-    }
-    if (mpi->mpiHead())
-      std::cout << "Done with Berry connection." << std::endl;
-  }
+//  Eigen::Tensor<double, 3> berryConnection(points.getNumPoints(),
+//                                           h0.getNumBands(), 3);
+//  {
+//    if (mpi->mpiHead())
+//      std::cout << "Start computing Berry connection." << std::endl;
+//
+//    berryConnection.setZero();
+//#pragma omp parallel for default(none) shared(h0, points, berryConnection)
+//    for (int ik = 0; ik < points.getNumPoints(); ik++) {
+//      auto point = points.getPoint(ik);
+//      auto thisBerryConnection = h0.getBerryConnection(point);
+//      for (int ib = 0; ib < h0.getNumBands(); ib++) {
+//        for (int i : {0, 1, 2}) {
+//          berryConnection(ik, ib, i) = thisBerryConnection[i](ib, ib).real();
+//        }
+//      }
+//    }
+//    if (mpi->mpiHead())
+//      std::cout << "Done with Berry connection." << std::endl;
+//  }
+  auto berryConnection = h0.getBerryConnection(bandStructure);
 
   // now compute the polarization
   auto electronicPolarization = getElectronicPolarization(crystal, statisticsSweep,
@@ -485,7 +486,7 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
       double chemPot = sc.chemicalPotential;
       double population = particle.getPopulation(energy, temp, chemPot);
       for (int i : {0, 1, 2}) {
-        polarization(iCalc, i) -= population * berryConnection(ik, ib, i) * norm;
+        polarization(iCalc, i) -= population * berryConnection(ib, i, ik) * norm;
       }
     }
   }

@@ -26,13 +26,11 @@ ElectronH0Wannier::ElectronH0Wannier(
     Error("WannierH0(): degeneracies not aligned with vectors");
   }
 
-  if ((rMatrix.dimension(1) != h0R.dimension(0)) ||
-      (rMatrix.dimension(2) != h0R.dimension(1)) ||
-      (rMatrix.dimension(3) != h0R.dimension(2))) {
+  if ((rMatrix.dimension(0) != h0R.dimension(0)) || (rMatrix.dimension(1) != h0R.dimension(1)) || (rMatrix.dimension(2) != h0R.dimension(2))) {
     Error("WannierH0(): h0R and rMatrix should be aligned");
   }
 
-  if (rMatrix.dimension(0) != 3) {
+  if (rMatrix.dimension(3) != 3) {
     Error("WannierH0(): rMatrix should be a vector");
   }
 
@@ -125,7 +123,7 @@ Eigen::Tensor<std::complex<double>, 3>
 ElectronH0Wannier::diagonalizeVelocityFromCoordinates(
     Eigen::Vector3d &coordinates) {
   double delta = 1.0e-8;
-  double threshold = 0.000001 / energyRyToEv; // = 1 micro-eV
+  double threshold = 0.000001 / energyRyToEv;// = 1 micro-eV
 
   Eigen::Tensor<std::complex<double>, 3> velocity(numBands, numBands, 3);
   velocity.setZero();
@@ -224,7 +222,7 @@ ElectronH0Wannier::diagonalizeVelocityFromCoordinates(
 
         // diagonalize the subMatrix
         Eigen::SelfAdjointEigenSolver<Eigen::MatrixXcd> eigenSolver(subMat);
-        const Eigen::MatrixXcd&newEigenvectors = eigenSolver.eigenvectors();
+        const Eigen::MatrixXcd &newEigenvectors = eigenSolver.eigenvectors();
 
         // rotate the original matrix in the new basis
         // that diagonalizes the subspace.
@@ -260,7 +258,7 @@ FullBandStructure ElectronH0Wannier::populate(Points &fullPoints,
   std::vector<int> iks = fullBandStructure.getWavevectorIndices();
   int niks = iks.size();
 #pragma omp parallel for default(none) shared(niks, iks, fullBandStructure, withEigenvectors, withVelocities)
-  for(int iik = 0; iik < niks; iik++){
+  for (int iik = 0; iik < niks; iik++) {
     int ik = iks[iik];
     Point point = fullBandStructure.getPoint(ik);
     auto tup = diagonalize(point);
@@ -276,6 +274,61 @@ FullBandStructure ElectronH0Wannier::populate(Points &fullPoints,
     }
   }
   return fullBandStructure;
+}
+
+Eigen::Tensor<double, 3> ElectronH0Wannier::getBerryConnection(
+    FullBandStructure &bandStructure) {
+
+  if (mpi->mpiHead()) {
+    std::cout << "Start computing Berry connection." << std::endl;
+  }
+
+  int numPoints = bandStructure.getNumPoints();
+  Eigen::Tensor<double, 3> berryConnection(numBands, 3, numPoints);
+  berryConnection.setZero();
+
+  auto points = bandStructure.getPoints();
+
+#pragma omp parallel for default(none) shared(mpi,rMatrix, vectorsDegeneracies, numBands, numPoints, points, bravaisVectors, numVectors, bandStructure, berryConnection)
+  for (int ik = 0; ik < numPoints; ik++) {
+    if (mod(ik,mpi->getSize()) != mpi->getRank() ) continue;
+
+    WavevectorIndex ikIdx(ik);
+    Eigen::Vector3d k = bandStructure.getWavevector(ikIdx);
+
+    std::vector<std::complex<double>> phases(numVectors);
+    for (int iR = 0; iR < numVectors; iR++) {
+      Eigen::Vector3d R = bravaisVectors.col(iR);
+      double phase = k.dot(R);
+      std::complex<double> phaseFactor = {cos(phase), sin(phase)};
+      phases[iR] = phaseFactor / vectorsDegeneracies(iR);
+    }
+
+    Eigen::MatrixXcd eigenvector = bandStructure.getEigenvectors(ikIdx);
+
+    for (int i : {0, 1, 2}) {
+      // now construct the berryConnection in reciprocal space and Wannier gauge
+      Eigen::MatrixXcd berryConnectionW = Eigen::MatrixXcd::Zero(numBands, numBands);
+      for (int n = 0; n < numBands; n++) {
+        for (int m = 0; m < numBands; m++) {
+          for (int iR = 0; iR < bravaisVectors.cols(); iR++) {
+            berryConnectionW(m, n) +=
+                phases[iR] * rMatrix(iR, m, n, i);
+          }
+        }
+      }
+      auto thisBerryConnection = eigenvector.adjoint() * berryConnectionW * eigenvector;
+      for (int m = 0; m < numBands; m++) {
+        berryConnection(m, i, ik) = thisBerryConnection(m, m).real();
+      }
+    }
+  }
+  mpi->allReduceSum(&berryConnection);
+
+  if (mpi->mpiHead()) {
+    std::cout << "Done with Berry connection." << std::endl;
+  }
+  return berryConnection;
 }
 
 std::vector<Eigen::MatrixXcd>
@@ -301,14 +354,13 @@ ElectronH0Wannier::getBerryConnection(Point &point) {
   }
 
   for (int i = 0; i < 3; i++) {
-
     // now construct the berryConnection in reciprocal space and Wannier gauge
     Eigen::MatrixXcd berryConnectionW = Eigen::MatrixXcd::Zero(numBands, numBands);
     for (int iR = 0; iR < bravaisVectors.cols(); iR++) {
       for (int m = 0; m < numBands; m++) {
         for (int n = 0; n < numBands; n++) {
           berryConnectionW(m, n) +=
-              phases[iR] * rMatrix(i, iR, m, n);
+              phases[iR] * rMatrix(iR, m, n, i);
         }
       }
     }
@@ -318,4 +370,3 @@ ElectronH0Wannier::getBerryConnection(Point &point) {
   }
   return berryConnection;
 }
-

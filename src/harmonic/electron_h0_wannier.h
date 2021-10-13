@@ -80,6 +80,8 @@ class ElectronH0Wannier : public HarmonicHamiltonian {
    * connection is actually just the diagonal matrix elements.
    */
   std::vector<Eigen::MatrixXcd> getBerryConnection(Point &point);
+  Eigen::Tensor<double, 3> getBerryConnection(
+    FullBandStructure &bandStructure);
 
  protected:
   Particle particle;

@@ -843,8 +843,8 @@ QEParser::parseElHarmonicWannier(Context &context, Crystal *inCrystal) {
   Eigen::MatrixXd bravaisVectors(3, numVectors);
   Eigen::Tensor<std::complex<double>, 3> h0R(numVectors, numWannier,
                                              numWannier);
-  Eigen::Tensor<std::complex<double>, 4> rMatrix(3, numVectors, numWannier,
-                                                 numWannier);
+  Eigen::Tensor<std::complex<double>, 4> rMatrix(numVectors, numWannier,
+                                                 numWannier, 3);
   bravaisVectors.setZero();
   h0R.setZero();
   rMatrix.setZero();
@@ -892,13 +892,13 @@ QEParser::parseElHarmonicWannier(Context &context, Crystal *inCrystal) {
         double re,im;
         re = std::stod(lineSplit[2]) / distanceBohrToAng;
         im = std::stod(lineSplit[3]) / distanceBohrToAng;
-        rMatrix(0, iR, i, j) = {re, im}; // the matrix was in eV
+        rMatrix(iR, i, j, 0) = {re, im}; // the matrix was in eV
         re = std::stod(lineSplit[4]) / distanceBohrToAng;
         im = std::stod(lineSplit[5]) / distanceBohrToAng;
-        rMatrix(1, iR, i, j) = {re, im}; // the matrix was in eV
+        rMatrix(iR, i, j, 1) = {re, im}; // the matrix was in eV
         re = std::stod(lineSplit[6]) / distanceBohrToAng;
         im = std::stod(lineSplit[7]) / distanceBohrToAng;
-        rMatrix(2, iR, i, j) = {re, im}; // the matrix was in eV
+        rMatrix(iR, i, j, 2) = {re, im}; // the matrix was in eV
       }
     }
   }
