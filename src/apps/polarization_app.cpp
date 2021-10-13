@@ -13,31 +13,31 @@
 #include "qe_input_parser.h"
 #include "statistics_sweep.h"
 
-Eigen::MatrixXd ElectronPolarizationApp::testElectronicPolarization(
-    ElectronH0Wannier &h0, StatisticsSweep &statisticsSweep, Crystal &crystal) {
-  // here I compute the polarization as the sum of the Wannier function centers
-  // i.e. summing <0n|r|0n>
-  int numCalculations = statisticsSweep.getNumCalculations();
-  Eigen::MatrixXd electronicPolarization = Eigen::MatrixXd::Zero(numCalculations,3);
-  double volume = crystal.getVolumeUnitCell();
-
-  // #NOTE::: this index is hard-coded for the test example!
-  int iR0 = 364;
-  for (int iw=0; iw<h0.getNumBands(); iw++) {
-    for (int iCalc=0; iCalc<numCalculations; iCalc++) {
-      for (int i : {0, 1, 2}) {
-        // the 2 is the spin degeneracy
-        electronicPolarization(iCalc, i) -= 2. * h0.rMatrix(i, iR0, iw, iw).real() / volume;
-      }
-    }
-  }
-  for (int iCalc=0; iCalc<numCalculations; iCalc++) {
-    for (int i : {0, 1, 2}) {
-      std::cout << i << " " << electronicPolarization(iCalc,i) << "\n";
-    }
-  }
-  return electronicPolarization;
-}
+//Eigen::MatrixXd ElectronPolarizationApp::testElectronicPolarization(
+//    ElectronH0Wannier &h0, StatisticsSweep &statisticsSweep, Crystal &crystal) {
+//  // here I compute the polarization as the sum of the Wannier function centers
+//  // i.e. summing <0n|r|0n>
+//  int numCalculations = statisticsSweep.getNumCalculations();
+//  Eigen::MatrixXd electronicPolarization = Eigen::MatrixXd::Zero(numCalculations,3);
+//  double volume = crystal.getVolumeUnitCell();
+//
+//  // #NOTE::: this index is hard-coded for the test example!
+//  int iR0 = 364;
+//  for (int iw=0; iw<h0.getNumBands(); iw++) {
+//    for (int iCalc=0; iCalc<numCalculations; iCalc++) {
+//      for (int i : {0, 1, 2}) {
+//        // the 2 is the spin degeneracy
+//        electronicPolarization(iCalc, i) -= 2. * h0.rMatrix(i, iR0, iw, iw).real() / volume;
+//      }
+//    }
+//  }
+//  for (int iCalc=0; iCalc<numCalculations; iCalc++) {
+//    for (int i : {0, 1, 2}) {
+//      std::cout << i << " " << electronicPolarization(iCalc,i) << "\n";
+//    }
+//  }
+//  return electronicPolarization;
+//}
 
 std::vector<std::string> splitt(const std::string &s, char delimiter) {
   std::vector<std::string> tokens;
@@ -180,7 +180,7 @@ void ElectronPolarizationApp::run(Context &context) {
   // first we make compute the band structure on the fine grid
   Points points(crystal, context.getKMesh());
   bool withVelocities = false;
-  bool withEigenvectors = true;
+  bool withEigenvectors = true; // used for Berry connection
   FullBandStructure bandStructure =
       h0.populate(points, withVelocities, withEigenvectors);
 
@@ -189,27 +189,6 @@ void ElectronPolarizationApp::run(Context &context) {
   int numCalculations = statisticsSweep.getNumCalculations();
 
   // now we build the Berry connection
-
-//  Eigen::Tensor<double, 3> berryConnection(points.getNumPoints(),
-//                                           h0.getNumBands(), 3);
-//  {
-//    if (mpi->mpiHead())
-//      std::cout << "Start computing Berry connection." << std::endl;
-//
-//    berryConnection.setZero();
-//#pragma omp parallel for default(none) shared(h0, points, berryConnection)
-//    for (int ik = 0; ik < points.getNumPoints(); ik++) {
-//      auto point = points.getPoint(ik);
-//      auto thisBerryConnection = h0.getBerryConnection(point);
-//      for (int ib = 0; ib < h0.getNumBands(); ib++) {
-//        for (int i : {0, 1, 2}) {
-//          berryConnection(ik, ib, i) = thisBerryConnection[i](ib, ib).real();
-//        }
-//      }
-//    }
-//    if (mpi->mpiHead())
-//      std::cout << "Done with Berry connection." << std::endl;
-//  }
   auto berryConnection = h0.getBerryConnection(bandStructure);
 
   // now compute the polarization
@@ -260,7 +239,9 @@ void ElectronPolarizationApp::run(Context &context) {
     }
   }
 
-  std::cout << "Electron polarization computed" << std::endl;
+  if (mpi->mpiHead()) {
+    std::cout << "Electron polarization computed" << std::endl;
+  }
 }
 
 void ElectronPolarizationApp::checkRequirements(Context &context) {
@@ -271,7 +252,7 @@ void ElectronPolarizationApp::checkRequirements(Context &context) {
     Error("Either chemical potentials or dopings must be set");
   }
   throwErrorIfUnset(context.getXMLPath(), "xmlPath");
-  throwErrorIfUnset(context.getProjectionsFileName(), "projectionsFileName");
+  throwErrorIfUnset(context.getScfOutputFileName(), "scfOutputFileName");
 }
 
 void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
@@ -280,7 +261,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
 
   // here we parse the k-mesh
   Eigen::Vector3i kMesh = Eigen::Vector3i::Zero();
-  {
+  if (mpi->mpiHead()){
     // open input file
     std::string fileName = wannierPrefix + ".win";
     std::ifstream infile(fileName);
@@ -299,6 +280,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
       }
     }
   }
+  mpi->allReduceSum(&kMesh);
   if (kMesh(0)==0 || kMesh(1)==0 || kMesh(2)==0) {
     Error("Failed to parse mp_grid from Wannier90");
   }
@@ -309,7 +291,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
 
   // parse the coordinates of the kpoints used in the calculation
   Eigen::MatrixXd kGridFull = Eigen::MatrixXd::Zero(3, numPoints);
-  {
+  if (mpi->mpiHead()) {
     std::vector<std::string> lines;
     {
       // open input file
@@ -345,6 +327,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
       }
     }
   }
+  mpi->allReduceSum(&kGridFull);
 
   //--------------------------------------------------------
 
@@ -404,19 +387,19 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
   // this makes the calculation of fermi level work
   context.setNumOccupiedStates(numFilledWannier);
 
-
+  //---------------------------------------------------------
 
   // parse valence charges
   // read the projections from QE scf.out file
 
   valenceCharges.resize(crystal.getNumSpecies());
   valenceCharges.setZero();
-  {
+  if ( mpi->mpiHead() ){
     // first, parse all the scf output file
     std::vector<std::string> lines;
     {
       // open input file
-      std::string fileName = "./scf.out";// context.getProjectionsFileName();
+      std::string fileName = context.getScfOutputFileName();
       std::ifstream infile(fileName);
       if (not infile.is_open()) {
         Error("Scf output file not found");
@@ -453,10 +436,11 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
       }
     }
   }
+  mpi->allReduceSum(&valenceCharges);
 
-  if (mpi->mpiHead())
+  if (mpi->mpiHead()) {
     std::cout << "Done reading files." << std::endl;
-
+  }
 }
 
 Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
@@ -473,24 +457,37 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
   double volume = crystal.getVolumeUnitCell();
   double norm = spinFactor / context.getKMesh().prod() / volume;
 
-  for (int is : bandStructure.parallelStateIterator()) {
-    StateIndex isIdx(is);
-    double energy = bandStructure.getEnergy(isIdx);
-    auto t = bandStructure.getIndex(isIdx);
-    int ik = std::get<0>(t).get();
-    int ib = std::get<1>(t).get();
+//#pragma omp parallel default(none) shared(mpi, bandStructure, particle, polarization, statisticsSweep, numCalculations, norm, berryConnection)
+  {
+//    Eigen::MatrixXd privatePolarization = Eigen::MatrixXd::Zero(numCalculations, 3);
+//#pragma omp for nowait
+    for (int is : bandStructure.parallelStateIterator()) {
+      StateIndex isIdx(is);
+      double energy = bandStructure.getEnergy(isIdx);
+      auto t = bandStructure.getIndex(isIdx);
+      int ik = std::get<0>(t).get();
+      int ib = std::get<1>(t).get();
 
-    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-      auto sc = statisticsSweep.getCalcStatistics(iCalc);
-      double temp = sc.temperature;
-      double chemPot = sc.chemicalPotential;
-      double population = particle.getPopulation(energy, temp, chemPot);
-      for (int i : {0, 1, 2}) {
-        polarization(iCalc, i) -= population * berryConnection(ib, i, ik) * norm;
+      for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
+        auto sc = statisticsSweep.getCalcStatistics(iCalc);
+        double temp = sc.temperature;
+        double chemPot = sc.chemicalPotential;
+        double population = particle.getPopulation(energy, temp, chemPot);
+        for (int i : {0, 1, 2}) {
+          polarization(iCalc, i) -= population * berryConnection(ib, i, ik) * norm;
+        }
       }
     }
+
+//#pragma omp critical
+//    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
+//      for (int i : {0, 1, 2}) {
+//        polarization(iCalc, i) += privatePolarization(iCalc, i);
+//      }
+//    }
+
+    mpi->allReduceSum(&polarization);
   }
-  mpi->allReduceSum(&polarization);
 
   return polarization;
 }
@@ -499,10 +496,12 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
 Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
-  std::cout << valenceCharges.transpose() << "\n";
-  std::cout << crystal.getAtomicNames()[0] << " "
-            << crystal.getAtomicNames()[1] << " "
-            << crystal.getAtomicNames()[2] << "\n";
+  if (mpi->mpiHead()) {
+    std::cout << valenceCharges.transpose() << "\n";
+    std::cout << crystal.getAtomicNames()[0] << " "
+              << crystal.getAtomicNames()[1] << " "
+              << crystal.getAtomicNames()[2] << "\n";
+  }
 
   int numCalculations = statisticsSweep.getNumCalculations();
   double volume = crystal.getVolumeUnitCell();
@@ -510,6 +509,7 @@ Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
 
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
+#pragma omp parallel for default(none) shared(polarization, numAtoms, atomicPositions, crystal, valenceCharges, volume, numCalculations)
   for (int iAt = 0; iAt < numAtoms; iAt++) {
     Eigen::Vector3d position = atomicPositions.row(iAt);
     int iType = crystal.getAtomicSpecies()(iAt);

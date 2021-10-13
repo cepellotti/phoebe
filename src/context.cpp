@@ -452,8 +452,8 @@ void Context::setupFromInput(const std::string &fileName) {
       if (parameterName == "xmlPath") {
         xmlPath = parseString(val);
       }
-      if (parameterName == "projectionsFileName") {
-        projectionsFileName = parseString(val);
+      if (parameterName == "scfOutputFileName") {
+        scfOutputFileName = parseString(val);
       }
 
       if (parameterName == "elPhInterpolation") {
@@ -1065,7 +1065,7 @@ void Context::setQuantumEspressoPrefix(const std::string &x) {
 
 std::string Context::getXMLPath() { return xmlPath; }
 
-std::string Context::getProjectionsFileName() { return projectionsFileName; }
+std::string Context::getScfOutputFileName() { return scfOutputFileName; }
 
 std::string Context::getElPhInterpolation() { return elPhInterpolation; }
 

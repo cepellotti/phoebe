@@ -24,9 +24,9 @@ class ElectronPolarizationApp : public App {
   Eigen::MatrixXd getIonicPolarization(Crystal &crystal,
                                        StatisticsSweep &statisticsSweep);
 
-  Eigen::MatrixXd testElectronicPolarization(ElectronH0Wannier &h0,
-                                             StatisticsSweep &statisticsSweep,
-                                             Crystal &crystal);
+//  Eigen::MatrixXd testElectronicPolarization(ElectronH0Wannier &h0,
+//                                             StatisticsSweep &statisticsSweep,
+//                                             Crystal &crystal);
 };
 
 #endif

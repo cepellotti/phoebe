@@ -102,7 +102,7 @@ class Context {
   bool distributedElPhCoupling = true; // MPI parallelize the el-ph coupling
   // currently only support parallelization of the qe2Phoebe app
 
-  std::string xmlPath, projectionsFileName;
+  std::string xmlPath, scfOutputFileName;
 
 public:
   // Methods for the apps of plotting the electron-phonon coupling
@@ -152,7 +152,7 @@ public:
   std::string getElPhInterpolation();
 
   std::string getXMLPath();
-  std::string getProjectionsFileName();
+  std::string getScfOutputFileName();
 
   double getEpaSmearingEnergy() const;
   double getEpaDeltaEnergy() const;
