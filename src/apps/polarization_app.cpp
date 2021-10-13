@@ -457,10 +457,11 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
   double volume = crystal.getVolumeUnitCell();
   double norm = spinFactor / context.getKMesh().prod() / volume;
 
-//#pragma omp parallel default(none) shared(mpi, bandStructure, particle, polarization, statisticsSweep, numCalculations, norm, berryConnection)
+#pragma omp parallel default(none) shared(mpi, bandStructure, particle, polarization, statisticsSweep, numCalculations, norm, berryConnection)
   {
-//    Eigen::MatrixXd privatePolarization = Eigen::MatrixXd::Zero(numCalculations, 3);
-//#pragma omp for nowait
+    Eigen::MatrixXd privatePolarization(numCalculations, 3);
+    privatePolarization.setZero();
+#pragma omp for nowait
     for (int is : bandStructure.parallelStateIterator()) {
       StateIndex isIdx(is);
       double energy = bandStructure.getEnergy(isIdx);
@@ -474,20 +475,19 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
         double chemPot = sc.chemicalPotential;
         double population = particle.getPopulation(energy, temp, chemPot);
         for (int i : {0, 1, 2}) {
-          polarization(iCalc, i) -= population * berryConnection(ib, i, ik) * norm;
+          privatePolarization(iCalc, i) -= population * berryConnection(ib, i, ik) * norm;
         }
       }
     }
 
-//#pragma omp critical
-//    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
-//      for (int i : {0, 1, 2}) {
-//        polarization(iCalc, i) += privatePolarization(iCalc, i);
-//      }
-//    }
-
-    mpi->allReduceSum(&polarization);
+#pragma omp critical
+    for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
+      for (int i : {0, 1, 2}) {
+        polarization(iCalc, i) += privatePolarization(iCalc, i);
+      }
+    }
   }
+  mpi->allReduceSum(&polarization);
 
   return polarization;
 }
