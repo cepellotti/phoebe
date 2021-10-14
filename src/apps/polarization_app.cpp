@@ -2,8 +2,9 @@
 
 #include <algorithm>
 #include <fstream>
-#include <string>
 #include <iomanip>
+#include <nlohmann/json.hpp>
+#include <string>
 
 #include "constants.h"
 #include "elph_qe_to_phoebe_app.h"
@@ -70,7 +71,7 @@ Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
   if (not result) {
     Error("Error parsing XML file");
   }
-  if(mpi->mpiHead()) {
+  if (mpi->mpiHead()) {
     std::cout << "Reading crystal from " << xmlPath << "." << std::endl;
   }
 
@@ -85,7 +86,7 @@ Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
   int i = 0;
   for (pugi::xml_node species : atomicSpeciesXML.children("species")) {
     speciesNames.emplace_back(species.attribute("name").value());
-    speciesMasses(i) = species.child("mass").text().as_double(); // in amu
+    speciesMasses(i) = species.child("mass").text().as_double();// in amu
     i += 1;
   }
 
@@ -152,7 +153,7 @@ Crystal parseCrystalFromXml(Context &context, const std::string &xmlPath) {
                   speciesNames, speciesMasses, dimensionality);
   crystal.print();
 
-  if(mpi->mpiHead()) {
+  if (mpi->mpiHead()) {
     std::cout << "Done reading crystal." << std::endl;
   }
 
@@ -180,7 +181,7 @@ void ElectronPolarizationApp::run(Context &context) {
   // first we make compute the band structure on the fine grid
   Points points(crystal, context.getKMesh());
   bool withVelocities = false;
-  bool withEigenvectors = true; // used for Berry connection
+  bool withEigenvectors = true;// used for Berry connection
   FullBandStructure bandStructure =
       h0.populate(points, withVelocities, withEigenvectors);
 
@@ -193,7 +194,7 @@ void ElectronPolarizationApp::run(Context &context) {
 
   // now compute the polarization
   auto electronicPolarization = getElectronicPolarization(crystal, statisticsSweep,
-      context, bandStructure, spinFactor, berryConnection);
+                                                          context, bandStructure, spinFactor, berryConnection);
   auto ionicPolarization = getIonicPolarization(crystal, statisticsSweep);
   auto polarization = electronicPolarization + ionicPolarization;
 
@@ -205,7 +206,7 @@ void ElectronPolarizationApp::run(Context &context) {
     auto cell = crystal.getDirectUnitCell();
     // cell.row(i) is the lattice vector i
     double volume = crystal.getVolumeUnitCell();
-    for (int i : {0,1,2}) {
+    for (int i : {0, 1, 2}) {
       // this is the norm of R_i lattice vector
       double normI = cell.row(i).norm();
       // https://arxiv.org/pdf/1202.1831.pdf
@@ -222,7 +223,7 @@ void ElectronPolarizationApp::run(Context &context) {
   // print results to screen
   if (mpi->mpiHead()) {
     std::cout << "Polarization quantum eR/V: "
-            << conversionPolarization * polarizationQuantum.transpose() << " (C/m^2)\n";
+              << conversionPolarization * polarizationQuantum.transpose() << " (C/m^2)\n";
     std::cout << "\n";
     std::cout << "Temperature (K), doping (cm^-3), chemical potential (eV)\n";
     for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
@@ -237,6 +238,49 @@ void ElectronPolarizationApp::run(Context &context) {
       }
       std::cout << "\n";
     }
+  }
+
+  if (mpi->mpiHead()) {
+
+    std::string units = "C / m^2";
+
+    std::vector<double> pQuantum;
+    for (int i : {0, 1, 2}) {
+      pQuantum.push_back(polarizationQuantum(i) * conversionPolarization);
+    }
+
+    std::vector<double> temps;
+    std::vector<double> dopings;
+    std::vector<std::vector<double>> ps;
+    for (int iCalc = 0; iCalc < statisticsSweep.getNumCalculations(); iCalc++) {
+      // store temperatures
+      auto calcStat = statisticsSweep.getCalcStatistics(iCalc);
+      double temp = calcStat.temperature;
+      temps.push_back(temp * temperatureAuToSi);
+      double dop = calcStat.doping;
+      dopings.push_back(dop);
+      // store polarizations
+      std::vector<double> p;
+      for (int i : {0, 1, 2}) {
+        p.push_back(polarization(iCalc, i) * conversionPolarization);
+      }
+      ps.push_back(p);
+    }
+
+    // output to json
+    nlohmann::json output;
+    output["temperatures"] = temps;
+    output["temperatureUnit"] = "K";
+    output["dopingConcentrations"] = dopings;
+    output["dopingConcentrationUnit"] = "cm^-3";
+
+    output["polarizationUnit"] = units;
+    output["polarization"] = ps;
+    output["polarizationQuantum"] = pQuantum;
+
+    std::ofstream o("./polarization.json");
+    o << std::setw(3) << output << std::endl;
+    o.close();
   }
 
   if (mpi->mpiHead()) {
@@ -256,12 +300,12 @@ void ElectronPolarizationApp::checkRequirements(Context &context) {
 }
 
 void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
-                                                       Crystal &crystal) {
+                                                    Crystal &crystal) {
   std::string wannierPrefix = context.getWannier90Prefix();
 
   // here we parse the k-mesh
   Eigen::Vector3i kMesh = Eigen::Vector3i::Zero();
-  if (mpi->mpiHead()){
+  if (mpi->mpiHead()) {
     // open input file
     std::string fileName = wannierPrefix + ".win";
     std::ifstream infile(fileName);
@@ -274,14 +318,14 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
         auto x = Context::split(line, ' ');
         if (x[0] == "mp_grid") {
           for (int i : {0, 1, 2}) {
-            kMesh(i) = std::stoi(x[i+2]);
+            kMesh(i) = std::stoi(x[i + 2]);
           }
         }
       }
     }
   }
   mpi->allReduceSum(&kMesh);
-  if (kMesh(0)==0 || kMesh(1)==0 || kMesh(2)==0) {
+  if (kMesh(0) == 0 || kMesh(1) == 0 || kMesh(2) == 0) {
     Error("Failed to parse mp_grid from Wannier90");
   }
 
@@ -381,7 +425,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
   std::string phoebePrefixQE = context.getQuantumEspressoPrefix();
 
   auto uMatrices = ElPhQeToPhoebeApp::setupRotationMatrices(wannierPrefix, kPoints);
-//  auto numEntangledBands = int(uMatrices.dimension(0));// number of entangled bands
+  //  auto numEntangledBands = int(uMatrices.dimension(0));// number of entangled bands
   int bandsOffset = ElPhQeToPhoebeApp::computeOffset(energies, wannierPrefix);
   int numFilledWannier = numElectrons - bandsOffset * 2;
   // this makes the calculation of fermi level work
@@ -394,7 +438,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
 
   valenceCharges.resize(crystal.getNumSpecies());
   valenceCharges.setZero();
-  if ( mpi->mpiHead() ){
+  if (mpi->mpiHead()) {
     // first, parse all the scf output file
     std::vector<std::string> lines;
     {
@@ -496,12 +540,16 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
 Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
-  if (mpi->mpiHead()) {
-    std::cout << valenceCharges.transpose() << "\n";
-    std::cout << crystal.getAtomicNames()[0] << " "
-              << crystal.getAtomicNames()[1] << " "
-              << crystal.getAtomicNames()[2] << "\n";
-  }
+//  valenceCharges[0] = 4.;// oxygen // remove s electrons
+//  valenceCharges[1] = 4.;// titanium
+//  valenceCharges[2] = 2.;// barium // no valence
+//
+//  if (mpi->mpiHead()) {
+//    std::cout << valenceCharges.transpose() << "\n";
+//    std::cout << crystal.getAtomicNames()[0] << " "
+//              << crystal.getAtomicNames()[1] << " "
+//              << crystal.getAtomicNames()[2] << "\n";
+//  }
 
   int numCalculations = statisticsSweep.getNumCalculations();
   double volume = crystal.getVolumeUnitCell();
