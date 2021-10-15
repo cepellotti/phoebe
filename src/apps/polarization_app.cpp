@@ -306,6 +306,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
   // here we parse the k-mesh
   Eigen::Vector3i kMesh = Eigen::Vector3i::Zero();
   if (mpi->mpiHead()) {
+    std::cout << "Parsing .win file" << std::endl;
     // open input file
     std::string fileName = wannierPrefix + ".win";
     std::ifstream infile(fileName);
@@ -314,7 +315,8 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
     }
     std::string line;
     while (std::getline(infile, line)) {
-      if (!line.empty()) {
+      std::string target_string = "mp_grid";
+      if (line.find(target_string) != std::string::npos) {
         auto x = Context::split(line, ' ');
         if (x[0] == "mp_grid") {
           for (int i : {0, 1, 2}) {
@@ -336,6 +338,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
   // parse the coordinates of the kpoints used in the calculation
   Eigen::MatrixXd kGridFull = Eigen::MatrixXd::Zero(3, numPoints);
   if (mpi->mpiHead()) {
+    std::cout << "Parsing k-points" << std::endl;
     std::vector<std::string> lines;
     {
       // open input file
@@ -385,8 +388,9 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
     if (not result) {
       Error("Error parsing XML file");
     }
-    if (mpi->mpiHead())
+    if (mpi->mpiHead()) {
       std::cout << "Reading in " << fileName << "." << std::endl;
+    }
     pugi::xml_node output = doc.child("qes:espresso").child("output");
 
     pugi::xml_node bandStructureXML = output.child("band_structure");
@@ -439,6 +443,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
   valenceCharges.resize(crystal.getNumSpecies());
   valenceCharges.setZero();
   if (mpi->mpiHead()) {
+    std::cout << "Parsing " << context.getScfOutputFileName() << std::endl;
     // first, parse all the scf output file
     std::vector<std::string> lines;
     {
@@ -457,9 +462,10 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
     int counter = -1;
     for (auto line : lines) {
       counter++;
-      if (line.empty()) continue;
-      auto x = Context::split(line, ' ');
-      if (x[0] == "PseudoPot.") {
+
+      std::string target_string = "PseudoPot.";
+      if (line.find(target_string) != std::string::npos) {// found
+        auto x = Context::split(line, ' ');
         std::string species = x[4];
         species[0] = std::toupper(species[0]);
         auto xx = Context::split(lines[counter + 3], ' ');
@@ -477,6 +483,8 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
           Error("Species not found");
         }
         valenceCharges(iSpecies) = charge;
+      } else {
+        continue;
       }
     }
   }
