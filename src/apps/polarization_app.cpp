@@ -230,8 +230,11 @@ void ElectronPolarizationApp::run(Context &context) {
     for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
       auto sc = statisticsSweep.getCalcStatistics(iCalc);
       std::cout << std::fixed << std::setprecision(6);
-      std::cout << sc.temperature * temperatureAuToSi << "\t" << sc.doping
-                << "\t" << sc.chemicalPotential * energyRyToEv << "\n";
+      std::cout << sc.temperature * temperatureAuToSi << "\t";
+      std::cout << std::scientific << std::setprecision(6);
+      std::cout << sc.doping << "\t";
+      std::cout << std::fixed << std::setprecision(6);
+      std::cout<< sc.chemicalPotential * energyRyToEv << "\n";
       std::cout << "Polarization (C/m^2):";
       std::cout << std::scientific;
       for (int i : {0, 1, 2}) {
