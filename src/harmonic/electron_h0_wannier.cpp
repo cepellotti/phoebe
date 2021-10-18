@@ -279,23 +279,24 @@ FullBandStructure ElectronH0Wannier::populate(Points &fullPoints,
 Eigen::Tensor<double, 3> ElectronH0Wannier::getBerryConnection(
     FullBandStructure &bandStructure) {
 
-  if (mpi->mpiHead()) {
-    std::cout << "Start computing Berry connection." << std::endl;
-  }
+    if ( mpi->mpiHead() ) {
+      std::cout << "Start computing Berry connection." << std::endl;
+    }
 
   int numPoints = bandStructure.getNumPoints();
+
   Eigen::Tensor<double, 3> berryConnection(numBands, 3, numPoints);
   berryConnection.setZero();
 
   auto points = bandStructure.getPoints();
 
-#pragma omp parallel for default(none) shared(mpi,rMatrix, vectorsDegeneracies, numBands, numPoints, points, bravaisVectors, numVectors, bandStructure, berryConnection)
+#pragma omp parallel for default(none) shared(std::cout,mpi,rMatrix, vectorsDegeneracies, numBands, numPoints, points, bravaisVectors, numVectors, bandStructure, berryConnection)
   for (int ik = 0; ik < numPoints; ik++) {
+
     if (mod(ik,mpi->getSize()) != mpi->getRank() ) continue;
 
     WavevectorIndex ikIdx(ik);
     Eigen::Vector3d k = bandStructure.getWavevector(ikIdx);
-
     std::vector<std::complex<double>> phases(numVectors);
     for (int iR = 0; iR < numVectors; iR++) {
       Eigen::Vector3d R = bravaisVectors.col(iR);
@@ -303,9 +304,7 @@ Eigen::Tensor<double, 3> ElectronH0Wannier::getBerryConnection(
       std::complex<double> phaseFactor = {cos(phase), sin(phase)};
       phases[iR] = phaseFactor / vectorsDegeneracies(iR);
     }
-
     Eigen::MatrixXcd eigenvector = bandStructure.getEigenvectors(ikIdx);
-
     for (int i : {0, 1, 2}) {
       // now construct the berryConnection in reciprocal space and Wannier gauge
       Eigen::MatrixXcd berryConnectionW = Eigen::MatrixXcd::Zero(numBands, numBands);
@@ -317,7 +316,7 @@ Eigen::Tensor<double, 3> ElectronH0Wannier::getBerryConnection(
           }
         }
       }
-      auto thisBerryConnection = eigenvector.adjoint() * berryConnectionW * eigenvector;
+      Eigen::MatrixXcd thisBerryConnection = eigenvector.adjoint() * berryConnectionW * eigenvector;
       for (int m = 0; m < numBands; m++) {
         berryConnection(m, i, ik) = thisBerryConnection(m, m).real();
       }

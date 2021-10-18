@@ -187,6 +187,7 @@ void ElectronPolarizationApp::run(Context &context) {
 
   // let's fix the chemical potential now that we have the band structure
   StatisticsSweep statisticsSweep(context, &bandStructure);
+
   int numCalculations = statisticsSweep.getNumCalculations();
 
   // now we build the Berry connection
