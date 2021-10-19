@@ -569,7 +569,7 @@ Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
 
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
-#pragma omp parallel for default(none) shared(polarization, numAtoms, atomicPositions, crystal, valenceCharges, volume, numCalculations)
+//#pragma omp parallel for default(none) shared(polarization, numAtoms, atomicPositions, crystal, valenceCharges, volume, numCalculations)
   for (int iAt = 0; iAt < numAtoms; iAt++) {
     Eigen::Vector3d position = atomicPositions.row(iAt);
     int iType = crystal.getAtomicSpecies()(iAt);
