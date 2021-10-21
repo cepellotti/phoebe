@@ -21,7 +21,7 @@ class ElectronPolarizationApp : public App {
       BaseBandStructure &bandStructure, const double &spinFactor,
       const Eigen::Tensor<double, 3> &berryConnection);
 
-  Eigen::MatrixXd getIonicPolarization(Crystal &crystal,
+  Eigen::MatrixXd getIonicPolarization(Context &context, Crystal &crystal,
                                        StatisticsSweep &statisticsSweep);
 
 //  Eigen::MatrixXd testElectronicPolarization(ElectronH0Wannier &h0,

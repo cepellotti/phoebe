@@ -196,7 +196,7 @@ void ElectronPolarizationApp::run(Context &context) {
   // now compute the polarization
   auto electronicPolarization = getElectronicPolarization(crystal, statisticsSweep,
                                                           context, bandStructure, spinFactor, berryConnection);
-  auto ionicPolarization = getIonicPolarization(crystal, statisticsSweep);
+  auto ionicPolarization = getIonicPolarization(context, crystal, statisticsSweep);
   auto polarization = electronicPolarization + ionicPolarization;
 
   double conversionPolarization = electronSi / pow(bohrRadiusSi, 2);
@@ -473,7 +473,7 @@ void ElectronPolarizationApp::setVariablesFromFiles(Context &context,
         std::string species = x[4];
         species[0] = std::toupper(species[0]);
         auto xx = Context::split(lines[counter + 3], ' ');
-        double charge = std::stod(xx[5]);
+        double charge = std::stod(xx.back());
 
         int iSpecies = -1;
         int ctr = 0;
@@ -549,7 +549,7 @@ Eigen::MatrixXd ElectronPolarizationApp::getElectronicPolarization(
 }
 
 // now we add the ionic polarization
-Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
+Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(Context &context,
     Crystal &crystal, StatisticsSweep &statisticsSweep) {
 
 //  valenceCharges[0] = 4.;// oxygen // remove s electrons
@@ -567,6 +567,8 @@ Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
   double volume = crystal.getVolumeUnitCell();
   int numAtoms = crystal.getNumAtoms();
 
+  double totalIonicCharge = 0.;
+
   Eigen::MatrixXd polarization = Eigen::MatrixXd::Zero(numCalculations, 3);
   Eigen::MatrixXd atomicPositions = crystal.getAtomicPositions();
 //#pragma omp parallel for default(none) shared(polarization, numAtoms, atomicPositions, crystal, valenceCharges, volume, numCalculations)
@@ -575,12 +577,19 @@ Eigen::MatrixXd ElectronPolarizationApp::getIonicPolarization(
     int iType = crystal.getAtomicSpecies()(iAt);
     int valenceCharge = valenceCharges(iType);
 
+    totalIonicCharge += valenceCharge;
+
     for (int i : {0, 1, 2}) {
       double x = valenceCharge * position(i) / volume;
       for (int iCalc = 0; iCalc < numCalculations; iCalc++) {
         polarization(iCalc, i) += x;
       }
     }
+  }
+
+  if ( abs(context.getNumOccupiedStates() - totalIonicCharge) > 1e-4 ) {
+    std::cout << context.getNumOccupiedStates()  << " " << totalIonicCharge << std::endl;
+    Error("Unbalanced charge");
   }
 
   return polarization;
